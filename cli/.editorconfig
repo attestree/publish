@@ -1,0 +1,151 @@
+# Attestree — editorconfig
+# Per Plan Unit 1.1 + AGENTS.md conventions.
+# Treat-style-as-error is paired with EnforceCodeStyleInBuild=true in
+# Directory.Build.props so style violations break CI.
+
+root = true
+
+# Line endings mirror .gitattributes, which decides what is on disk after a checkout: LF
+# everywhere except the Windows-only script types. A value here that disagrees with it makes
+# every editorconfig-aware tool (an IDE, dotnet format) rewrite the line endings of a clean
+# file, which git then reports as modified with no content diff (#2192). The
+# LineEndingConfigAgreementRatchetTests in Wep.ControlPlane.Web.Tests hold the two files together.
+[*]
+indent_style = space
+indent_size = 4
+tab_width = 4
+end_of_line = lf
+charset = utf-8
+trim_trailing_whitespace = true
+insert_final_newline = true
+
+[*.{md,markdown}]
+trim_trailing_whitespace = false
+end_of_line = lf
+
+[*.{yml,yaml,json,jsonc}]
+indent_size = 2
+end_of_line = lf
+
+[*.{ps1,psm1,psd1,cmd,bat,reg}]
+end_of_line = crlf
+
+[*.{sh,bash}]
+end_of_line = lf
+
+[*.{xml,csproj,props,targets,sln,vbproj,fsproj,projitems,shproj}]
+indent_size = 2
+
+[*.cs]
+# Newlines & spacing
+csharp_new_line_before_open_brace = all
+csharp_new_line_before_else = true
+csharp_new_line_before_catch = true
+csharp_new_line_before_finally = true
+csharp_new_line_before_members_in_object_initializers = true
+csharp_new_line_before_members_in_anonymous_types = true
+csharp_new_line_between_query_expression_clauses = true
+
+# Indentation
+csharp_indent_case_contents = true
+csharp_indent_switch_labels = true
+csharp_indent_labels = flush_left
+csharp_indent_block_contents = true
+csharp_indent_braces = false
+csharp_indent_case_contents_when_block = false
+
+# Spacing
+csharp_space_after_cast = false
+csharp_space_after_keywords_in_control_flow_statements = true
+csharp_space_between_method_call_parameter_list_parentheses = false
+csharp_space_between_method_declaration_parameter_list_parentheses = false
+csharp_space_between_parentheses = false
+csharp_space_before_colon_in_inheritance_clause = true
+csharp_space_after_colon_in_inheritance_clause = true
+csharp_space_around_binary_operators = before_and_after
+
+# Wrapping
+csharp_preserve_single_line_statements = false
+csharp_preserve_single_line_blocks = true
+
+# var preferences — explicit type when type is not apparent
+csharp_style_var_for_built_in_types = false:warning
+csharp_style_var_when_type_is_apparent = true:suggestion
+csharp_style_var_elsewhere = false:suggestion
+
+# Expression-bodied members
+csharp_style_expression_bodied_methods = when_on_single_line:suggestion
+csharp_style_expression_bodied_constructors = false:suggestion
+csharp_style_expression_bodied_operators = when_on_single_line:suggestion
+csharp_style_expression_bodied_properties = true:suggestion
+csharp_style_expression_bodied_indexers = true:suggestion
+csharp_style_expression_bodied_accessors = true:suggestion
+csharp_style_expression_bodied_lambdas = true:suggestion
+csharp_style_expression_bodied_local_functions = when_on_single_line:suggestion
+
+# Pattern matching & null
+csharp_style_pattern_matching_over_is_with_cast_check = true:warning
+csharp_style_pattern_matching_over_as_with_null_check = true:warning
+csharp_style_throw_expression = true:suggestion
+csharp_style_conditional_delegate_call = true:warning
+
+# Modern syntax
+csharp_style_inlined_variable_declaration = true:warning
+csharp_style_deconstructed_variable_declaration = true:suggestion
+csharp_style_pattern_local_over_anonymous_function = true:suggestion
+
+# File-scoped namespaces (one of the few non-negotiables)
+csharp_style_namespace_declarations = file_scoped:error
+csharp_using_directive_placement = outside_namespace:error
+dotnet_sort_system_directives_first = true
+dotnet_separate_import_directive_groups = false
+
+# Global modifier order
+csharp_preferred_modifier_order = public,private,protected,internal,file,static,extern,new,virtual,abstract,sealed,override,readonly,unsafe,required,volatile,async:warning
+
+# Nullable
+dotnet_diagnostic.CS8600.severity = error
+dotnet_diagnostic.CS8602.severity = error
+dotnet_diagnostic.CS8603.severity = error
+dotnet_diagnostic.CS8604.severity = error
+dotnet_diagnostic.CS8618.severity = error
+
+# Naming — types and methods PascalCase
+dotnet_naming_rule.types_should_be_pascal_case.severity = error
+dotnet_naming_rule.types_should_be_pascal_case.symbols  = types
+dotnet_naming_rule.types_should_be_pascal_case.style    = pascal_case_style
+
+dotnet_naming_symbols.types.applicable_kinds = class,struct,interface,enum,delegate
+dotnet_naming_style.pascal_case_style.capitalization = pascal_case
+
+# Interfaces start with I
+dotnet_naming_rule.interfaces_start_with_i.severity = error
+dotnet_naming_rule.interfaces_start_with_i.symbols  = interfaces
+dotnet_naming_rule.interfaces_start_with_i.style    = i_prefix_pascal_style
+dotnet_naming_symbols.interfaces.applicable_kinds  = interface
+dotnet_naming_style.i_prefix_pascal_style.capitalization = pascal_case
+dotnet_naming_style.i_prefix_pascal_style.required_prefix = I
+
+# Private fields _camelCase
+dotnet_naming_rule.private_fields_camel_case_with_underscore.severity = warning
+dotnet_naming_rule.private_fields_camel_case_with_underscore.symbols  = private_fields
+dotnet_naming_rule.private_fields_camel_case_with_underscore.style    = underscore_camel_style
+dotnet_naming_symbols.private_fields.applicable_kinds = field
+dotnet_naming_symbols.private_fields.applicable_accessibilities = private
+dotnet_naming_style.underscore_camel_style.capitalization = camel_case
+dotnet_naming_style.underscore_camel_style.required_prefix = _
+
+# Constants UPPER_SNAKE_CASE
+dotnet_naming_rule.constants_should_be_upper_case.severity = suggestion
+dotnet_naming_rule.constants_should_be_upper_case.symbols  = constants
+dotnet_naming_rule.constants_should_be_upper_case.style    = upper_snake_style
+dotnet_naming_symbols.constants.applicable_kinds   = field
+dotnet_naming_symbols.constants.required_modifiers = const
+dotnet_naming_style.upper_snake_style.capitalization = all_upper
+dotnet_naming_style.upper_snake_style.word_separator = _
+
+# Disable noisy analyzers in tests
+[**/tests/**/*.cs]
+dotnet_diagnostic.CA1707.severity = none
+dotnet_diagnostic.CA2007.severity = none
+dotnet_diagnostic.CA1305.severity = none

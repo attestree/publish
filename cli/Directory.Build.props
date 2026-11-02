@@ -1,0 +1,147 @@
+<Project>
+
+  <!--
+    Centralized build properties for Attestree.
+    Per Plan Unit 1.1 + AGENTS.md conventions.
+
+    The default target framework is the cross-platform .NET 10 moniker (`net10.0`).
+    Windows-only projects (agent, shim, on-prem appliance, AD connector, control-plane
+    Windows Service hosts) override TargetFramework to `net10.0-windows10.0.26100.0`
+    with min `10.0.19041` per the AGENTS.md convention.
+  -->
+
+  <PropertyGroup Label="Identity">
+    <!-- The product's name, stamped into AssemblyProduct ("Product name" in the
+         Windows file-properties Details tab). #1869: the product is Attestree.
+         "Wep" stays only where it is an identifier (namespaces, assemblies,
+         config keys, paths, service names). -->
+    <Product>Attestree</Product>
+    <!-- #1479: the legal person, not a brand and not a collective. "Wep Authors"
+         implied a group that does not exist, and it is stamped into the
+         AssemblyCompany/AssemblyCopyright of every binary we ship — visible in
+         the Windows file-properties Details tab on each signed artifact.
+         Operator decision 2026-10-12: the legal fields read "Marc Kevin Borer,
+         trading as Attestree" — the same natural person the code-signing
+         certificate is issued to (subject CN "Borer Marc Kevin", Certum, an
+         individual-validated certificate; ci/signing/ pins that CN, not these
+         values). Change both together if an entity is ever incorporated. -->
+    <Company>Marc Kevin Borer, trading as Attestree</Company>
+    <Authors>Marc Kevin Borer, trading as Attestree</Authors>
+    <Copyright>Copyright (c) 2026 Marc Kevin Borer, trading as Attestree</Copyright>
+    <NeutralLanguage>en-US</NeutralLanguage>
+    <!-- Default version metadata. Only $(Version) carries a conditional
+         default; $(FileVersion), $(AssemblyVersion), and $(InformationalVersion)
+         are intentionally NOT defaulted here — the .NET SDK's
+         GenerateAssemblyInfo target derives each of them from $(Version)
+         when they're unset, which is exactly what we want so
+         platform-release builds (-p:Version=0.12.5) produce assemblies
+         whose FileVersion + AssemblyVersion + InformationalVersion all
+         match the platform tag.
+
+         Defaulting FileVersion/AssemblyVersion in this file would shadow
+         the CLI Version override (their Conditions test '$(FileVersion) == ''
+         and '$(AssemblyVersion) == '', not '$(Version) == '', so a
+         numeric default of 0.1.0.0 prevents the SDK's derivation target
+         from firing entirely — even when CLI passes -p:Version=...).
+         This was the #612 / Plan 2026-05-20-005 root cause: the 2026-05-17
+         PR #550 audit added Version's conditional guard but left
+         FileVersion+AssemblyVersion's defaults in place, so the audit
+         verified each CLI override individually but missed that CI only
+         passes -p:Version=... and never -p:FileVersion=... etc. -->
+    <Version Condition="'$(Version)' == ''">0.1.0-alpha</Version>
+    <!-- Suppress the SDK's default "+SOURCE_REVISION_ID" build-metadata
+         suffix on AssemblyInformationalVersion so the agent's
+         server-reported version is exactly e.g. "0.10.1" — not
+         "0.10.1+sha". Applied repo-wide for consistency across all
+         closed-source binaries (agent, control-plane-api, etc.). -->
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+  </PropertyGroup>
+
+  <PropertyGroup Label="Language">
+    <TargetFramework>net10.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <WarningsAsErrors />
+    <WarningsNotAsErrors />
+    <AnalysisLevel>latest-recommended</AnalysisLevel>
+    <EnableNETAnalyzers>true</EnableNETAnalyzers>
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+    <CheckForOverflowUnderflow>true</CheckForOverflowUnderflow>
+    <NoWarn>$(NoWarn);CA1014</NoWarn>
+  </PropertyGroup>
+
+  <PropertyGroup Label="Build">
+    <Deterministic>true</Deterministic>
+    <ContinuousIntegrationBuild Condition="'$(GITHUB_ACTIONS)' == 'true'">true</ContinuousIntegrationBuild>
+    <ProduceReferenceAssembly>false</ProduceReferenceAssembly>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+    <DebugType>portable</DebugType>
+    <DebugSymbols>true</DebugSymbols>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+  </PropertyGroup>
+
+  <PropertyGroup Label="NativeAotDefaults">
+    <!--
+      Native AOT defaults for projects that opt in (Wep.Agent, Wep.Agent.Updater, Wep.Shim).
+      Library projects DO NOT set <PublishAot>true</PublishAot>; only the entry-point
+      executables that ship to endpoints do, per the plan's Native AOT scope.
+
+      AOT-incompatible libraries (EF Core, dynamic LINQ) MUST stay out of any project
+      whose csproj sets PublishAot=true. The agent's local-state layer uses
+      Microsoft.Data.Sqlite + hand-written SQL per ADR scope decision.
+    -->
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <IlcOptimizationPreference>Size</IlcOptimizationPreference>
+    <StripSymbols>true</StripSymbols>
+    <StackTraceSupport>true</StackTraceSupport>
+  </PropertyGroup>
+
+  <PropertyGroup Label="LicenseSegregation">
+    <!--
+      License-segregation policy (per ADR-001 Decision 3).
+      Each .csproj MUST set <SourceLicense> to either "OSS-Apache-2.0" or
+      "Commercial-EULA". Build fails closed if unset; this prevents
+      accidentally publishing closed source under an OSS license tag.
+
+      The CI pipeline reads SourceLicense to route artifacts to the correct
+      release pipeline (release-shim.yml for OSS; release-platform.yml for closed).
+    -->
+    <SourceLicense Condition="'$(SourceLicense)' == ''">UNSET</SourceLicense>
+  </PropertyGroup>
+
+  <PropertyGroup Label="WixToolset">
+    <!--
+      #5024: WiX v7 builds nothing (WIX7015) until its Open Source Maintenance Fee EULA is accepted:
+      the SDK, and the Dtf packages in every project that references them (both installer custom
+      actions, Wep.ControlPlane.Web, Wep.Detonation.Broker), on Windows and in the Linux image build.
+      Accepted by the operator 2026-10-26, with the fee terms (OSMF EULA v1.1, section 1) reviewed in
+      #5024. A wix.exe run outside MSBuild takes the same id as `-acceptEula wix7`.
+    -->
+    <AcceptEula>wix7</AcceptEula>
+  </PropertyGroup>
+
+  <Target Name="ValidateSourceLicense" BeforeTargets="Build" Condition="'$(IsPackable)' != 'false' OR '$(OutputType)' == 'Exe'">
+    <Error Condition="'$(SourceLicense)' == 'UNSET'"
+           Text="SourceLicense MSBuild property is not set in $(MSBuildProjectFile). Set it to 'OSS-Apache-2.0' or 'Commercial-EULA' (see AGENTS.md license-segregation rules)." />
+    <Error Condition="'$(SourceLicense)' != 'OSS-Apache-2.0' AND '$(SourceLicense)' != 'Commercial-EULA'"
+           Text="SourceLicense='$(SourceLicense)' in $(MSBuildProjectFile) is not a recognized value. Use 'OSS-Apache-2.0' or 'Commercial-EULA'." />
+  </Target>
+
+  <ItemGroup>
+    <None Include="$(MSBuildThisFileDirectory)LICENSE-OSS"
+          Pack="true"
+          PackagePath="LICENSE"
+          Condition="'$(IsPackable)' == 'true' AND '$(SourceLicense)' == 'OSS-Apache-2.0'" />
+    <None Include="$(MSBuildThisFileDirectory)LICENSE-COMMERCIAL"
+          Pack="true"
+          PackagePath="LICENSE"
+          Condition="'$(IsPackable)' == 'true' AND '$(SourceLicense)' == 'Commercial-EULA'" />
+  </ItemGroup>
+
+</Project>

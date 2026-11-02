@@ -1,0 +1,183 @@
+<Project>
+
+  <!--
+    ============================================================================
+    #1815: pin the RUNTIME PACK version for self-contained / Native-AOT publishes
+    ============================================================================
+
+    THE PROBLEM
+    The runtime packs baked into every self-contained / Native-AOT publish
+    (Microsoft.NETCore.App.Runtime.*, Microsoft.WindowsDesktop.App.Runtime.*,
+    Microsoft.AspNetCore.App.Runtime.*, and the Native-AOT ILCompiler +
+    Microsoft.NETCore.App.Runtime.NativeAOT.* packs) are NOT pinned by anything
+    the repo controls. Their version is the resolving SDK's KnownFrameworkReference
+    / KnownILCompilerPack metadata — i.e. whatever global.json's "10.0.203" +
+    rollForward:latestFeature happens to resolve on the building machine.
+    latestFeature picks the highest INSTALLED feature band, and a band whose VS
+    release has left support does not track the monthly runtime patch. On the dev
+    box that resolves SDK 10.0.204, whose bundled runtime is 10.0.8 — which 9
+    advisories flag as vulnerable (6 high, incl. CVE-2026-62901; first patched
+    10.0.11). So local self-contained publishes of the agent / broker / shim
+    (hot-deploy loop, PSDirect upgrades, golden-VHDX tooling) silently shipped a
+    vulnerable runtime; CI only landed on 10.0.11 by luck of which SDK bands were
+    installed.
+
+    THE FIX (Option A of #1815)
+    Pin the runtime-pack version to the current patched runtime so the SDK
+    downloads that EXACT pack regardless of which SDK band is resolving. Every
+    self-contained / AOT publish is now deterministic and Dependabot-legible. A
+    build-time floor assertion (target below) then PROVES the pin actually took
+    effect, so a stale value or a silently no-op'd Update fails the build loudly
+    instead of quietly shipping a vulnerable runtime again.
+
+    WHY NOT THE $(RuntimeFrameworkVersion) PROPERTY
+    The obvious lever, <RuntimeFrameworkVersion>, over-reaches on the Windows-
+    targeting projects (Wep.Agent, Wep.Detonation.Broker, ... are
+    net10.0-windows): the SDK applies it to EVERY framework reference, including
+    Microsoft.Windows.SDK.NET.Ref, whose real version is a Windows build number
+    (10.0.26100.57), NOT a 10.0.x runtime version. That produces a duplicate
+    Microsoft.Windows.SDK.NET.Ref PackageDownload ([10.0.11] + [10.0.26100.57])
+    and fails restore with NU1505 (Warning-As-Error under the repo analyzers).
+    So instead we pin the three RUNTIME-pack framework references directly, which
+    leaves the Windows SDK ref pack untouched. The KnownILCompilerPack Update
+    covers the Native-AOT toolchain packs
+    (runtime.<rid>.Microsoft.DotNet.ILCompiler +
+    Microsoft.NETCore.App.Runtime.NativeAOT.<rid>) that no runtime-pack lever reaches.
+
+    SCOPE (deliberately NOT pinned): KnownAppHostPack + KnownCrossgen2Pack stay at
+    the SDK band default (net10 = 10.0.8). The apphost launcher stub and the
+    crossgen2 R2R tool are not managed CoreCLR and are not in the #1815 CVE
+    cluster (all 9 advisories are managed-runtime), so they are out of scope here.
+
+    WHY THIS FILE, AND WHY CONDITIONED
+    Directory.Build.targets is imported AFTER each csproj body, so $(SelfContained)
+    / $(PublishAot) are already set here — a Directory.Build.props import runs
+    BEFORE the csproj body and would see them empty. The property condition scopes
+    the pin to exactly the projects that bake a runtime pack:
+      - src: Wep.Agent, Wep.Agent.Updater, Wep.Agent.SessionHelper, Wep.Shim,
+             Wep.SandboxAgent, Wep.Detonation.Broker (all set SelfContained=true
+             in-file; Wep.Agent, Wep.Agent.Updater and Wep.Shim publish
+             PublishAot=true via the release command lines, but the SessionHelper,
+             Updater and Shim copies inside the agent are JIT build output, #3380).
+      - tools: the Wep.Tools.* verifiers / builders + ProxmoxResultExtractor
+             (SelfContained=true in-file).
+    It deliberately does NOT fire for the framework-dependent path:
+    Wep.ControlPlane.{Web,Catalog} publish into the aspnet:10.0 Docker image with
+    a self-contained:false switch (see src/Wep.ControlPlane.Web/Dockerfile) — the
+    base image supplies the shared framework, so $(SelfContained) is false there and
+    no floor is imposed on that build. Libraries and test projects are framework-
+    dependent too and are likewise untouched, so this pin adds no
+    "runtime >= 10.0.11 must be installed to run" requirement to local test runs.
+
+    The Update targets share their Include identity across ALL of the SDK's
+    KnownFrameworkReference bands (Microsoft.NETCore.App alone has 8 entries in
+    BundledVersions.props, from net10.0 down through netcoreapp3.0), so each Update
+    touches all bands — inert, since no project in this repo targets < net10, so
+    only the net10.0 band is ever resolved and the other bands' edits never apply.
+    (A metadata-batched Condition like '%(TargetFramework)'=='net10.0' is NOT legal
+    in a static ItemGroup — MSB4191 — and a Target-time edit is not reliably visible
+    to restore, which is where the runtime-pack PackageDownload set is computed.)
+
+    !! STALENESS — READ BEFORE TRUSTING THESE NUMBERS !!
+    $(WepMinimumRuntimeFrameworkVersion) is an MSBuild value, NOT a NuGet
+    PackageReference. Dependabot does NOT bump MSBuild properties, and the only
+    thing that catches a stale value is the floor assertion below (which fails the
+    build if the RESOLVED runtime pack is under the floor). BUMP THIS ONE PROPERTY
+    EACH .NET PATCH TUESDAY to the newest patched 10.0.x runtime — the Updates and
+    the assertion all read it, so it is the single source of truth. See #1815 for
+    the full mechanism and the B+C alternative (SDK-band floor + build guard) if
+    SDK-driven auto-patching is ever preferred over a hand-bumped pin.
+
+    #4916: .github/workflows/dotnet-runtime-bump.yml now opens the bump PR daily.
+    It reads Microsoft's 10.0 release metadata every day, so an out-of-band
+    release is caught as well as patch Tuesday's, and once every pack this pin
+    moves is on nuget.org and the sdk and aspnet images carry the new runtime,
+    its GitHub App opens one PR that moves this property, the platform image's
+    ARG WEP_MIN_RUNTIME and both base digests together. Until the App is set up
+    it opens an issue with those edits instead. The hand bump above stays the
+    fallback whenever no PR arrives: ci/dotnet/Set-DotnetRuntimeBump.ps1 makes
+    the same four edits.
+  -->
+
+  <!-- #1815: single source of truth for BOTH the pin (Updates below) and the floor
+       (assertion below). Bump this every .NET patch Tuesday; since #4916
+       dotnet-runtime-bump.yml opens that PR daily (see STALENESS above). -->
+  <PropertyGroup>
+    <WepMinimumRuntimeFrameworkVersion>10.0.14</WepMinimumRuntimeFrameworkVersion>
+  </PropertyGroup>
+
+  <!-- #1815: pin the self-contained runtime packs to the floor. -->
+  <ItemGroup Condition="'$(SelfContained)' == 'true' or '$(PublishAot)' == 'true'">
+    <KnownFrameworkReference Update="Microsoft.NETCore.App"
+                             LatestRuntimeFrameworkVersion="$(WepMinimumRuntimeFrameworkVersion)"
+                             DefaultRuntimeFrameworkVersion="$(WepMinimumRuntimeFrameworkVersion)" />
+    <KnownFrameworkReference Update="Microsoft.WindowsDesktop.App"
+                             LatestRuntimeFrameworkVersion="$(WepMinimumRuntimeFrameworkVersion)"
+                             DefaultRuntimeFrameworkVersion="$(WepMinimumRuntimeFrameworkVersion)" />
+    <KnownFrameworkReference Update="Microsoft.AspNetCore.App"
+                             LatestRuntimeFrameworkVersion="$(WepMinimumRuntimeFrameworkVersion)"
+                             DefaultRuntimeFrameworkVersion="$(WepMinimumRuntimeFrameworkVersion)" />
+  </ItemGroup>
+
+  <!-- #1815: pin the Native-AOT toolchain (ILCompiler pack + the
+       Microsoft.NETCore.App.Runtime.NativeAOT.<rid> runtime pack that shares its
+       version) to the same floor. Only Wep.Agent + the agent-family exes reach
+       this (PublishAot on the release command line). -->
+  <ItemGroup Condition="'$(PublishAot)' == 'true'">
+    <KnownILCompilerPack Update="Microsoft.DotNet.ILCompiler"
+                         ILCompilerPackVersion="$(WepMinimumRuntimeFrameworkVersion)" />
+  </ItemGroup>
+
+  <!--
+    #1815 floor assertion: PROVE the pin took effect. The Updates above silently
+    no-op if a future SDK renames the KnownFrameworkReference item (the resolved
+    runtime pack then reverts to the band default, e.g. 10.0.8 — below the floor),
+    and a hand-bumped floor could drift ahead of a stale pin. Without a check the
+    vulnerable runtime returns while LOOKING fixed. This target reads the CONCRETE
+    resolved Microsoft.NETCore.App runtime-pack version (RuntimePackVersion on the
+    ResolvedFrameworkReference item, populated by ResolveFrameworkReferences) and
+    fails the build if it is below the floor. Gated identically to the pin, so it
+    never fires for framework-dependent builds; and it is silent on the happy path
+    (resolved == floor). Version-aware compare — string compare is wrong
+    ('10.0.9' > '10.0.11' lexically).
+  -->
+  <!--
+    Scope (fix for the platform-v0.147.0 release failure, 2026-08-27): the
+    SelfContained / PublishAot switches arrive as GLOBAL properties on the release
+    command line (`dotnet publish … /p:SelfContained=true /p:PublishAot=…`) and
+    MSBuild forwards global properties to every ProjectReference, so the pin's
+    condition is also true inside the agent's referenced LIBRARIES (e.g.
+    Wep.AgentCollector.Contract). A library never resolves a runtime pack — it
+    ships no runtime — so its ResolvedFrameworkReference carries no
+    RuntimePackVersion and the "could not read" branch below fired, killing the
+    first release after #1815 (run 33113540358). The floor is a property of the
+    project that PRODUCES the self-contained runtime, so the assertion runs only
+    for Exe/WinExe projects; libraries still receive the KnownFrameworkReference
+    pin above (harmless) but are not asked to prove a runtime they do not ship.
+    build-and-test never publishes self-contained, which is why CI could not see
+    this — reproduce locally with
+    `dotnet build src/Wep.Agent/Wep.Agent.csproj -c Release -r win-x64 /p:SelfContained=true /p:PublishAot=true`.
+  -->
+  <Target Name="_WepAssertRuntimePackMeetsFloor"
+          AfterTargets="ResolveFrameworkReferences"
+          Condition="('$(SelfContained)' == 'true' or '$(PublishAot)' == 'true') and ('$(OutputType)' == 'Exe' or '$(OutputType)' == 'WinExe')">
+    <PropertyGroup>
+      <_WepResolvedNetCoreRuntimePackVersion>@(ResolvedFrameworkReference->WithMetadataValue('Identity','Microsoft.NETCore.App')->'%(RuntimePackVersion)')</_WepResolvedNetCoreRuntimePackVersion>
+    </PropertyGroup>
+
+    <!-- Happy-path evidence line: lets a release log prove the floor was checked
+         for each shipped exe (and which project it was checked on). -->
+    <Message Importance="high"
+             Condition="'$(_WepResolvedNetCoreRuntimePackVersion)' != ''"
+             Text="#1815 runtime-pack floor: $(MSBuildProjectName) resolved Microsoft.NETCore.App runtime pack $(_WepResolvedNetCoreRuntimePackVersion) (floor $(WepMinimumRuntimeFrameworkVersion))" />
+
+    <!-- Empty = the SDK item/metadata contract this assertion reads has changed,
+         so the pin can no longer be verified. Fail loud rather than ship blind. -->
+    <Error Condition="'$(_WepResolvedNetCoreRuntimePackVersion)' == ''"
+           Text="#1815 floor assertion could not read the resolved Microsoft.NETCore.App runtime-pack version (@(ResolvedFrameworkReference)-&gt;RuntimePackVersion) for the self-contained/AOT project $(MSBuildProjectFile). The SDK item/metadata contract likely changed; the KnownFrameworkReference pin in Directory.Build.targets can no longer be verified. Re-verify the pin mechanism before shipping." />
+
+    <Error Condition="'$(_WepResolvedNetCoreRuntimePackVersion)' != '' and $([System.Version]::Parse('$(_WepResolvedNetCoreRuntimePackVersion)').CompareTo($([System.Version]::Parse('$(WepMinimumRuntimeFrameworkVersion)')))) &lt; 0"
+           Text="#1815 VULNERABLE RUNTIME: the resolved Microsoft.NETCore.App runtime pack is $(_WepResolvedNetCoreRuntimePackVersion), below the required floor $(WepMinimumRuntimeFrameworkVersion), for the self-contained/AOT project $(MSBuildProjectFile). Either the KnownFrameworkReference pin in Directory.Build.targets did not take effect (SDK item renamed?) or $(WepMinimumRuntimeFrameworkVersion) was bumped without a matching runtime pack being available. Repair the pin so the resolved runtime is at least $(WepMinimumRuntimeFrameworkVersion)." />
+  </Target>
+
+</Project>

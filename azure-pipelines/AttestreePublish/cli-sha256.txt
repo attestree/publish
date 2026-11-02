@@ -1,0 +1,7 @@
+# attestree-publish 1.0.1, the builds this version of the Action and the Azure Pipelines task run, by SHA-256.
+# Each is downloaded from the matching cli-v release of attestree/publish, and refused before it runs if its hash differs.
+version 1.0.1
+c7387016d465a3e1f3a0abffddfad0cc32b8544e80bcb3a359669b4af572acbb  attestree-publish-win-x64.exe
+0006927b8243ca58fcdc20b6135097d11787dc651e2b9cf37c614a0a471da86b  attestree-publish-linux-x64
+72b8aed2d4fd6565803d7e4f4cf7d5e1dce1c0840714ce1e978ca964643909c3  attestree-publish-linux-arm64
+d0a68b78b77fdfe54bf194763d5a3e96398e0c56edd62aa47b3fd8b6618a9015  attestree-publish-osx-arm64

@@ -1,0 +1,88 @@
+# #4830 U13 (plan docs/plans/2026-10-24-1609-feat-own-apps-and-private-winget-sources-plan.md, R15, R37; KTD8, KTD25).
+# The Attestree publish Action: a thin wrapper around the attestree-publish CLI. Its public home is the root of
+# attestree/publish (Q4); this folder is its source.
+#
+# Every input reaches the script through an environment variable, never through ${{ }} inside the script text, so no
+# input can inject a command.
+name: Attestree publish
+description: 'Publish a version of your own Windows app to Attestree, with this job''s OIDC identity, or into your own winget repository.'
+author: Attestree
+branding:
+  icon: upload-cloud
+  color: green
+
+inputs:
+  instance:
+    description: 'Push mode. The instance''s https base URL. The job needs ''permissions: id-token: write''.'
+    required: false
+  audience:
+    description: 'Push mode. The instance''s audience, attestree:<instance-id>, exactly as the binding screen shows it. The job''s OIDC token is requested for it.'
+    required: false
+  package-id:
+    description: 'The winget package id, inside one of the instance''s prefixes.'
+    required: true
+  version:
+    description: 'The version to publish.'
+    required: true
+  installers:
+    description: 'One installer per line, as <arch>=<path>, for example x64=dist/tool-x64.msi. One installer per architecture.'
+    required: true
+  manifest:
+    description: 'Optional. A winget manifest file or folder whose installer type, scope and switches the version uses.'
+    required: false
+  wait:
+    description: 'Push mode. Wait until the version is attested or reaches another final state; the step''s exit code says which.'
+    required: false
+    default: 'false'
+  wait-timeout:
+    description: 'Push mode. Minutes to wait before giving up.'
+    required: false
+    default: '60'
+  to-repository:
+    description: 'Repository mode. <owner>/<repo> of your winget repository, which the instance reads as a source. Nothing is sent to the instance. The job needs ''permissions: contents: write''.'
+    required: false
+  branch:
+    description: 'Repository mode. The branch the manifests are committed to.'
+    required: false
+    default: main
+  manifests-path:
+    description: 'Repository mode. The folder holding winget-pkgs'' layout.'
+    required: false
+    default: manifests
+  publisher:
+    description: 'Repository mode without a manifest. The publisher''s name.'
+    required: false
+  installer-type:
+    description: 'Repository mode without a manifest. msi, exe, inno, nullsoft, wix, burn or msix.'
+    required: false
+  github-token:
+    description: 'Repository mode. The token that writes the repository and its release.'
+    required: false
+    default: ${{ github.token }}
+  verbose:
+    description: 'Log each request''s method, host and path. No token is ever printed.'
+    required: false
+    default: 'false'
+
+runs:
+  using: composite
+  steps:
+    - name: Publish with attestree-publish
+      shell: pwsh
+      env:
+        ATTESTREE_INSTANCE: ${{ inputs.instance }}
+        ATTESTREE_AUDIENCE: ${{ inputs.audience }}
+        ATTESTREE_PACKAGE_ID: ${{ inputs.package-id }}
+        ATTESTREE_VERSION: ${{ inputs.version }}
+        ATTESTREE_INSTALLERS: ${{ inputs.installers }}
+        ATTESTREE_MANIFEST: ${{ inputs.manifest }}
+        ATTESTREE_WAIT: ${{ inputs.wait }}
+        ATTESTREE_WAIT_TIMEOUT: ${{ inputs.wait-timeout }}
+        ATTESTREE_TO_REPOSITORY: ${{ inputs.to-repository }}
+        ATTESTREE_BRANCH: ${{ inputs.branch }}
+        ATTESTREE_MANIFESTS_PATH: ${{ inputs.manifests-path }}
+        ATTESTREE_PUBLISHER: ${{ inputs.publisher }}
+        ATTESTREE_INSTALLER_TYPE: ${{ inputs.installer-type }}
+        ATTESTREE_VERBOSE: ${{ inputs.verbose }}
+        GITHUB_TOKEN: ${{ inputs.github-token }}
+      run: '& "$env:GITHUB_ACTION_PATH/run.ps1"'

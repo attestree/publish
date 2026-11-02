@@ -1,0 +1,348 @@
+<Project>
+
+  <!--
+    Central Package Management for Attestree.
+    Per Plan Unit 1.1: "version drift across 18 projects is impossible".
+
+    Versions below are the v1 reference set per the plan's Key Technical Decisions
+    section. Bumping any pin is an ADR-worthy decision once Phase 1 is past spike
+    stage; until then, pins may move freely as the cross-runtime spike (Unit 0.3)
+    and Phase 1 foundations stabilize.
+
+    Pinning rules:
+      - Floating versions (e.g., "10.*") are forbidden; every pin is exact.
+      - Preview/RC versions are tolerated for .NET 10 first-party packages
+        until the .NET 10 LTS GA stabilizes; everything else is GA only.
+      - Cross-runtime FFI dependencies (cuelang.go, cedar-policy-rust)
+        are NOT NuGet packages — they are vendored or P/Invoke'd; their
+        versions live in their respective project source trees.
+  -->
+
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+    <CentralPackageTransitivePinningEnabled>true</CentralPackageTransitivePinningEnabled>
+    <NoWarn>$(NoWarn);NU1507</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup Label="AspNetCoreAndBlazor">
+    <PackageVersion Include="Microsoft.AspNetCore.OpenApi" Version="10.0.11" />
+    <!-- Microsoft.AspNetCore.OpenApi 10.0.9 pulls Microsoft.OpenApi 2.0.0
+         transitively. GHSA-v5pm-xwqc-g5wc (CVSS 7.5: a crafted circular-$ref
+         OpenAPI doc stack-overflows the JSON/YAML reader) flags
+         >= 2.0.0-preview11, <= 2.7.4 as vulnerable -> NU1903 audit-as-error
+         fails a fresh `dotnet restore`. With
+         CentralPackageTransitivePinningEnabled=true, pinning 2.7.5 (the first
+         patched 2.x) here lifts the transitive to the fixed version and evicts
+         2.0.0 from the graph; Microsoft.AspNetCore.OpenApi stays at 10.0.9.
+         Same transitive-floor pattern as the SQLitePCLRaw / Crypto.Xml pins. -->
+    <PackageVersion Include="Microsoft.OpenApi" Version="2.7.5" />
+    <PackageVersion Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.14" />
+    <PackageVersion Include="Microsoft.AspNetCore.Authentication.OpenIdConnect" Version="10.0.14" />
+    <PackageVersion Include="Microsoft.AspNetCore.Components.QuickGrid" Version="10.0.14" />
+  </ItemGroup>
+
+  <ItemGroup Label="EntityFrameworkAndDb">
+    <PackageVersion Include="Microsoft.EntityFrameworkCore" Version="10.0.14" />
+    <PackageVersion Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.14" />
+    <PackageVersion Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.14" />
+    <!-- Bumped 9.0.2 → 10.0.0 per Plan 2026-05-04-001 Unit B.1 to satisfy
+         Npgsql.EntityFrameworkCore.PostgreSQL's transitive >= constraint (10.0.3 needs >= 10.0.4). -->
+    <PackageVersion Include="Npgsql" Version="10.0.3" />
+    <PackageVersion Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.3" />
+    <PackageVersion Include="Microsoft.Data.Sqlite" Version="10.0.14" />
+    <!--
+      CVE-2025-6965 / GHSA-2m69-gcr7-jv3q (SQLite memory corruption, High 7.2,
+      fixed in SQLite >= 3.50.2). Microsoft.Data.Sqlite 10.0.0 transitively pulls
+      SQLitePCLRaw.bundle_e_sqlite3 2.1.11 -> SQLitePCLRaw.lib.e_sqlite3 2.1.11,
+      which is DEPRECATED and frozen at 2.1.11 (no patched version). NU1903 audit
+      treats this as an error -> the release `dotnet restore` fails.
+
+      Fix (dependency-only, no source changes): the maintainer moved the native
+      from lib.e_sqlite3 to SourceGear.sqlite3. bundle_e_sqlite3 3.0.3 depends on
+      SourceGear.sqlite3 >= 3.50.4.5 (SQLite 3.50.4, patched) + config.e_sqlite3
+      3.0.3 and NO LONGER references lib.e_sqlite3. With
+      CentralPackageTransitivePinningEnabled=true, pinning the SQLitePCLRaw 3.0.3
+      stack here lifts MDS's transitive 2.1.11 to 3.0.3, evicting the vulnerable
+      lib.e_sqlite3 from the graph. Microsoft.Data.Sqlite itself moves with the
+      .NET servicing set (10.0.14 since 2026-10-27, which still asks for the 2.1.13
+      bundle), so the floor stays; only the native provider stack moves.
+      2026-10-26: the stack is on 3.0.5, whose bundle depends on the `SQLite`
+      package (same publisher, SourceGear / Eric Sink; SQLite 3.53.4) instead
+      of SourceGear.sqlite3, so that is the native pinned here. The floor
+      reasoning above is unchanged. -->
+    <PackageVersion Include="SQLitePCLRaw.bundle_e_sqlite3" Version="3.0.5" />
+    <PackageVersion Include="SQLitePCLRaw.core" Version="3.0.5" />
+    <PackageVersion Include="SQLitePCLRaw.provider.e_sqlite3" Version="3.0.5" />
+    <PackageVersion Include="SQLitePCLRaw.config.e_sqlite3" Version="3.0.5" />
+    <PackageVersion Include="SQLite" Version="3.53.4" />
+  </ItemGroup>
+
+  <ItemGroup Label="GrpcAndProtobuf">
+    <PackageVersion Include="Grpc.AspNetCore" Version="2.84.0" />
+    <PackageVersion Include="Grpc.Net.Client" Version="2.84.0" />
+    <!-- 2.67.0 was ADR-008's floor for Aspire.Hosting 9.0.0. The AppHost is retired (ADR 2026-10-26-001):
+         the broker's gRPC contract is what uses it now, and nothing holds it at that floor. -->
+    <PackageVersion Include="Grpc.Tools" Version="2.85.0" />
+    <PackageVersion Include="Google.Protobuf" Version="3.36.2" />
+  </ItemGroup>
+
+  <ItemGroup Label="OpenTelemetry">
+    <!-- Bumped from 1.10.0 in early Phase 1 to clear GHSA-8785-wc3w-h8q6 + GHSA-g94r-2vxg-569j moderate advisories on OpenTelemetry.Api. -->
+    <PackageVersion Include="OpenTelemetry" Version="1.20.1" />
+    <PackageVersion Include="OpenTelemetry.Api" Version="1.20.1" />
+    <PackageVersion Include="OpenTelemetry.Extensions.Hosting" Version="1.20.1" />
+  </ItemGroup>
+
+  <ItemGroup Label="Identity">
+    <!-- Must stay at or above what Azure.Identity needs (transitive pinning is on). ADR-008's Aspire floor
+         is gone with the AppHost (ADR 2026-10-26-001). -->
+    <PackageVersion Include="Microsoft.Identity.Client" Version="4.91.1" />
+    <!-- Plan 2026-05-16-003 U0 (validated on windows-2025 hosted runner,
+         workflow run 25973283163). Locked pin; .nupkg sha512 captured in
+         tools/spikes/2026-05-16-ps-sdk-server-2025/COMPAT-REPORT.md per
+         round-2 audit supply-chain hardening. Consumed by U7's
+         PooledPowerShellInvoker on Windows-only paths.
+         #4237: 7.5.0 -> 7.6.6. PowerShell 7.5 leaves support on 2026-11-10
+         and 7.6 is the LTS line, built on .NET 10 like this repository.
+         When this pin moves, re-run the ps-sdk-server-2025-spike workflow:
+         the report carries the validated version and its sha512. -->
+    <PackageVersion Include="Microsoft.PowerShell.SDK" Version="7.6.9" />
+    <!-- Plan H1 Unit 2: ASP.NET Core Identity for the community-edition
+         local username/password admin store. Pulled in only by the
+         Wep.ControlPlane.Identity assembly; the underlying tables live
+         in a community_identity schema and are migrated through the
+         WepCommunityIdentityDbContext, distinct from WepIdentityDbContext
+         so Saas / OnPrem deployments do not get the Identity tables. -->
+    <PackageVersion Include="Microsoft.AspNetCore.Identity.EntityFrameworkCore" Version="10.0.14" />
+  </ItemGroup>
+
+  <ItemGroup Label="AzureSdk">
+    <!-- Referenced by Wep.ControlPlane.Web. 1.13.1 was ADR-008's floor for Aspire.Hosting.Azure 9.0.0,
+         gone with the AppHost (ADR 2026-10-26-001). -->
+    <PackageVersion Include="Azure.Identity" Version="1.21.0" />
+    <PackageVersion Include="Azure.Security.KeyVault.Keys" Version="4.10.2" />
+    <PackageVersion Include="Azure.Security.KeyVault.Secrets" Version="4.11.2" />
+    <!-- Plan 2026-09-02-1719 U7 (KTD2): the hosted bootstrap verb creates the
+         self-signed `catalog-attest` certificate through the vault's certificate
+         client, from the same Azure.Security.KeyVault family as the sibling Keys/Secrets clients. -->
+    <PackageVersion Include="Azure.Security.KeyVault.Certificates" Version="4.9.2" />
+    <PackageVersion Include="Azure.Storage.Blobs" Version="12.30.1" />
+    <!-- Plan 2026-05-21-003 U1: ASP.NET Core DataProtection AKV provider for SaaS mode. -->
+    <PackageVersion Include="Azure.Extensions.AspNetCore.DataProtection.Blobs" Version="1.5.5" />
+    <PackageVersion Include="Azure.Extensions.AspNetCore.DataProtection.Keys" Version="1.6.5" />
+    <!-- Plan 2026-05-21-003 U3: IDataProtector / IDataProtectionProvider interface
+         dep for Catalog's broker-CA root key store. Interface-only; full
+         DataProtection runtime stays Web-side. -->
+    <PackageVersion Include="Microsoft.AspNetCore.DataProtection.Abstractions" Version="10.0.14" />
+  </ItemGroup>
+
+  <ItemGroup Label="Serialization">
+    <!-- Referenced by Catalog, Web and three test projects. 16.3.0 was ADR-008's floor for KubernetesClient,
+         gone with the AppHost (ADR 2026-10-26-001). -->
+    <PackageVersion Include="YamlDotNet" Version="16.3.0" />
+    <!-- Plan 007b Unit 5: managed Zstd implementation (no native interop) for
+         the audit-bundle .tar.zst sink. ADR-008 amended to record the rationale:
+         (a) ZstdNet (native FFI) explicitly rejected — AOT-incompatible, drags
+         a per-RID native shim per AGENTS.md AOT-strict policy;
+         (b) System.Formats.Tar is the BCL tar reader/writer (no NuGet pin needed). -->
+    <PackageVersion Include="ZstdSharp.Port" Version="0.8.8" />
+  </ItemGroup>
+
+  <ItemGroup Label="WindowsInterop">
+    <PackageVersion Include="Microsoft.Win32.Registry" Version="5.0.0" />
+    <!-- Plan 008a Unit 13: SystemEvents.SessionSwitch for logon/unlock
+         cadence triggers. NetworkChange.NetworkAvailabilityChanged is
+         in System.Net.NetworkInformation BCL (no package needed). -->
+    <!-- #4237: 10.0.0 -> 10.0.11 with Microsoft.PowerShell.SDK 7.6.6 (10.0.13
+         since the 2026-10-15 servicing roundup), which needs >= 10.0.5 here
+         and on System.Diagnostics.EventLog below. -->
+    <PackageVersion Include="Microsoft.Win32.SystemEvents" Version="10.0.14" />
+    <!-- Plan 2026-05-16-003 U7: these four follow the PowerShell SDK's
+         transitive floor (7.5.0 needed >= 9.0.1; 7.6.6 needs >= 10.0.5).
+         A pin below the floor fails the restore with NU1109 (package
+         downgrade), so they move with the SDK. -->
+    <PackageVersion Include="System.Management" Version="10.0.14" />
+    <PackageVersion Include="System.ServiceProcess.ServiceController" Version="10.0.14" />
+    <PackageVersion Include="System.DirectoryServices" Version="10.0.14" />
+    <PackageVersion Include="System.DirectoryServices.Protocols" Version="10.0.14" />
+    <!-- Plan 2026-05-17-001 U10-followup: WiX 5 managed CA (netstandard2.0
+         per MakeSfxCA constraint) needs these BCL packages that ship as
+         framework on net5.0+ but standalone on netstandard2.0. -->
+    <PackageVersion Include="System.IO.FileSystem.AccessControl" Version="5.0.0" />
+    <PackageVersion Include="System.Diagnostics.EventLog" Version="10.0.14" />
+  </ItemGroup>
+
+  <ItemGroup Label="Cryptography">
+    <!-- Bumped 9.0.0 → 10.0.7 per Plan 2026-05-04-001 Unit B.1 to satisfy
+         System.Security.Cryptography.Xml's transitive >= constraint; the whole
+         family then moved 10.0.7 → 10.0.10 (2026-07-21) to clear the CVE-2026-50525
+         advisory cluster on Cryptography.Xml — kept aligned across the group.
+         Family moved 10.0.11 → 10.0.13 (2026-10-13) to clear GHSA-846f-f764-76mx
+         and GHSA-2fmv-rv2c-59x7 on Pkcs; Wep.AgentCollector pins the same version
+         inline (it does not use central package management). -->
+    <PackageVersion Include="System.Security.Cryptography.Pkcs" Version="10.0.14" />
+    <!-- Plan 2026-06-24-001 U11 (agent device identity): DPAPI machine-scope
+         wrap of the agent's device-keypair PKCS#8 via ProtectedData.Protect.
+         A separate NuGet (not BCL) referenced only by Wep.Agent. Pinned to the
+         Cryptography-group family (10.0.13). AOT-compatible at .NET 10 (wraps
+         CryptProtectData via P/Invoke, reflection-free) — proven on the
+         Wep.Agent PublishAot smoke; satisfy it via this PackageReference, NOT a
+         WindowsDesktop FrameworkReference (which would drag the whole desktop
+         framework into the AOT image). The broker uses the same API but is
+         non-AOT, so this is the first AOT publish path for ProtectedData. -->
+    <PackageVersion Include="System.Security.Cryptography.ProtectedData" Version="10.0.14" />
+    <!-- Transitive-only (no source usage). The GHSA-q939-rpr3-3284 SSH.NET
+         2026.0.0 floor (see the Testcontainers group) requires
+         BouncyCastle.Cryptography >= 2.7.0, and SSH.NET reaches only the four
+         Testcontainers TEST projects. Until 2026-10-26 the central pin stayed
+         2.4.0 and those projects lifted it with VersionOverride, so that no
+         production graph shipped the newer BC. No src project resolves
+         BouncyCastle at all, so the pin is now 2.7.0 and the overrides are gone. -->
+    <PackageVersion Include="BouncyCastle.Cryptography" Version="2.7.0" />
+    <!-- Pinned per Plan 2026-05-04-001 Unit B.1 to clear GHSA-37gx-xxp4-5rgx +
+         GHSA-w3x6-4m5h-cxqf on earlier releases pulled transitively by EF Core
+         Design. Bumped 10.0.7 → 10.0.10 (2026-07-21) to clear CVE-2026-50525
+         (GHSA-8q5v-6pqq-x66h, -cvvh-rhrc-wg4q, -g8r8-53c2-pm3f, -23rf-6693-g89p):
+         a crafted-encrypted-XML DoS; vulnerable 10.0.0–10.0.9, first patched 10.0.10.
+         Bumped 10.0.11 → 10.0.13 (2026-10-13) to clear GHSA-r955-8q5j-3h83,
+         GHSA-7hqp-7c5m-4vq6 and GHSA-c399-9853-6jmj. -->
+    <PackageVersion Include="System.Security.Cryptography.Xml" Version="10.0.14" />
+  </ItemGroup>
+
+  <ItemGroup Label="HttpAndResilience">
+    <PackageVersion Include="Microsoft.Extensions.Http" Version="10.0.14" />
+  </ItemGroup>
+
+  <ItemGroup Label="Diagnostics">
+    <!-- Per Plan 2026-05-12-001 Unit 0.9: IHealthCheck abstraction for
+         the catalog attestation signer boot reconciliation. -->
+    <PackageVersion Include="Microsoft.Extensions.Diagnostics.HealthChecks.Abstractions" Version="10.0.14" />
+  </ItemGroup>
+
+  <ItemGroup Label="HostingAndConfig">
+    <PackageVersion Include="Microsoft.Extensions.Hosting" Version="10.0.14" />
+    <PackageVersion Include="Microsoft.Extensions.Hosting.WindowsServices" Version="10.0.14" />
+    <PackageVersion Include="Microsoft.Extensions.Configuration" Version="10.0.14" />
+    <PackageVersion Include="Microsoft.Extensions.Configuration.Json" Version="10.0.14" />
+    <PackageVersion Include="Microsoft.Extensions.Configuration.EnvironmentVariables" Version="10.0.14" />
+    <PackageVersion Include="Microsoft.Extensions.Logging" Version="10.0.14" />
+    <PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.14" />
+    <PackageVersion Include="Microsoft.Extensions.DependencyInjection" Version="10.0.14" />
+    <PackageVersion Include="Microsoft.Extensions.Options" Version="10.0.14" />
+  </ItemGroup>
+
+  <ItemGroup Label="Testing">
+    <!-- #1810: the split TestAdapter/TestFramework packages went [Legacy]-
+         deprecated (consolidated into this metapackage) — and so did the
+         ENTIRE MSTest 3.x line (the 3.11.1 intermediate hop failed the
+         hygiene gate too), so this is the 4.x current. The metapackage adds
+         MSTest.Analyzers to every test project. -->
+    <PackageVersion Include="MSTest" Version="4.5.1" />
+    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.11.0" />
+    <!-- AwesomeAssertions, not FluentAssertions (2026-10-26): FluentAssertions 8+
+         ships under Xceed's Community License, which is non-commercial only (it
+         excludes any organisation that "charges fees or earns revenues"), and 7.2.2
+         was the last Apache-2.0 release. AwesomeAssertions is the Apache-2.0
+         community fork of that line. It inherits FA 8's change that lets
+         OnlyContain/AllSatisfy pass on an empty collection, so those call sites
+         carry an explicit NotBeEmpty() wherever nothing else proves the collection
+         non-empty. Do not move this back to FluentAssertions 8+. -->
+    <PackageVersion Include="AwesomeAssertions" Version="9.6.0" />
+    <PackageVersion Include="NSubstitute" Version="6.2.0" />
+    <PackageVersion Include="coverlet.collector" Version="10.1.0" />
+    <PackageVersion Include="Testcontainers" Version="4.16.0" />
+    <!-- GHSA-q939-rpr3-3284 (SSH.NET ScpClient recursive-download arbitrary
+         file write, High): Testcontainers 4.1.0 pulls SSH.NET 2024.1.0
+         transitively; the advisory flags <= 2025.1.0 as vulnerable -> NU1903
+         audit-as-error fails a fresh `dotnet restore` (2026-08-13). With
+         CentralPackageTransitivePinningEnabled=true, pinning 2026.0.0 (the
+         first patched version) lifts the transitive and evicts 2024.1.0 from
+         the graph. Same transitive-floor pattern as the Microsoft.OpenApi /
+         SQLitePCLRaw pins above. Testcontainers 4.16.0 (2026-10-27) asks for
+         2026.0.0 itself, so the pin now only keeps a later Testcontainers from
+         walking the floor back down. -->
+    <PackageVersion Include="SSH.NET" Version="2026.0.0" />
+    <PackageVersion Include="Testcontainers.PostgreSql" Version="4.16.0" />
+    <!-- Per Plan 2026-05-04-001 Unit B.2: Azurite emulator for
+         AzureBlobBackend integration tests. -->
+    <PackageVersion Include="Testcontainers.Azurite" Version="4.16.0" />
+    <!-- Blazor component testing + WebApplicationFactory integration testing per Plan 2026-05-03-003 Unit A.1. -->
+    <PackageVersion Include="bunit" Version="2.13.3" />
+    <PackageVersion Include="Microsoft.AspNetCore.Mvc.Testing" Version="10.0.0" />
+    <!-- Per Plan 2026-05-13-002 (smoke extension) U1: Playwright .NET drives
+         the browser-based smoke against the community-edition compose stack. -->
+    <PackageVersion Include="Microsoft.Playwright" Version="1.64.1" />
+  </ItemGroup>
+
+  <ItemGroup Label="Detonation">
+    <!-- Plan 2026-05-14-002 (detonation mechanism) U8 — DiscUtils
+         fork for ISO + VHDX manipulation. LTRData fork is actively
+         maintained (upstream DiscUtils stalled in 2021). Per ADR
+         2026-05-14-001 (OQ17 annual review): swap criteria are
+         CVE OR EOL OR feature-gap-blocking. -->
+    <PackageVersion Include="LTRData.DiscUtils.Core" Version="1.0.90" />
+    <PackageVersion Include="LTRData.DiscUtils.Vhdx" Version="1.0.90" />
+    <PackageVersion Include="LTRData.DiscUtils.Iso9660" Version="1.0.90" />
+    <PackageVersion Include="LTRData.DiscUtils.Ntfs" Version="1.0.90" />
+  </ItemGroup>
+
+  <ItemGroup Label="WixToolset">
+    <!-- Plan 2026-05-17-001 U9: WiX 5 SDK pinning for the agent-installer
+         template MSI (Wep.Tools.AgentInstaller.wixproj) + the managed-code
+         custom-action DLL (Wep.Tools.AgentInstaller.CustomActions.csproj).
+         Dtf is the peer assembly to the SDK; same major+minor family per
+         WiX-team guidance. Bumping either is an ADR-worthy decision once
+         the installer pipeline (U9-U11+U16) is stable. WiX 5 unified
+         tooling (wix.exe) replaces the v3-era candle.exe + light.exe.
+         #5024: every WixToolset pin moves as ONE family, by hand. Dependabot reads no .wixproj (#4299),
+         so the four `Sdk="WixToolset.Sdk/..."` attributes and the broker's WepWixCliVersion move with
+         these lines or not at all (#4950 moved only Dtf). v7 needs the OSMF EULA accepted: AcceptEula in
+         Directory.Build.props for the build, `-acceptEula wix7` on every wix.exe run. -->
+    <PackageVersion Include="WixToolset.Sdk" Version="7.0.0" />
+    <PackageVersion Include="WixToolset.Dtf.WindowsInstaller" Version="7.0.0" />
+    <!-- MakeSfxCA wrapper: produces {AssemblyName}.CA.dll for Windows
+         Installer managed-CA hosting. Without this the install fails
+         with WiX1721 "DLL required for this install to complete could
+         not be run." Per Plan 2026-05-17-001 U10-followup. -->
+    <PackageVersion Include="WixToolset.Dtf.CustomAction" Version="7.0.0" />
+    <!-- Plan 2026-05-20-005 U3: util extension for <util:RemoveFolderEx>.
+         The broker creates C:\ProgramData\Wep\Broker (PKI) and
+         C:\ProgramData\Wep\Detonations (staging) at runtime — WiX doesn't
+         track these by default, so uninstall leaves stale-DACL files that
+         crash the next install's PkiBootstrap. RemoveFolderEx wipes them
+         on uninstall (gated on operator-overridable preserve properties).
+         WiX 5 ships util at the same release cadence as the SDK. -->
+    <PackageVersion Include="WixToolset.Util.wixext" Version="7.0.0" />
+    <!-- #4709: the UI extension's dialogs (welcome, progress, finished, maintenance, errors), which the setup wizard
+         of the agent and broker MSIs is built on (tools/installer-brand/AttestreeUI.wxs). Same family as the SDK. -->
+    <PackageVersion Include="WixToolset.UI.wixext" Version="7.0.0" />
+    <!-- #3176: the synthetic blocking bundle (tools/Wep.Tools.DerivationBlockingBundle). WiX 5 runs a
+         custom bootstrapper application as its own .exe; this is the managed API it talks to the engine
+         through (WiX 5's name for Mba.Core). Same family as the SDK. -->
+    <PackageVersion Include="WixToolset.BootstrapperApplicationApi" Version="7.0.0" />
+  </ItemGroup>
+
+  <ItemGroup Label="CommunityEditionIdentity">
+    <!-- Plan 2026-07-15-001 (CE user & role management) U6: QR rendering for the
+         self-service TOTP-enrollment surface (/community/account). QRCoder is
+         MIT-licensed (permissive OSS) — safe to reference from the Commercial-EULA
+         Wep.ControlPlane.Web project; the AGENTS.md SourceLicense rule governs OUR
+         source (OSS-Apache-2.0 shim vs Commercial-EULA everything-else), not a
+         permissive third-party dependency. Only the platform-independent renderers
+         are used (SvgQRCode → inline SVG); the System.Drawing-based `QRCode` renderer
+         is Windows-only and NOT referenced, so the Linux CE container is unaffected.
+         Manual base32 key entry always renders alongside the QR as a fallback. -->
+    <PackageVersion Include="QRCoder" Version="1.8.1" />
+  </ItemGroup>
+
+  <ItemGroup Label="DevTooling">
+    <!-- Pixel-diff backend for the visual-regression harness per Plan 2026-05-03-003 Unit E.3.
+         SkiaSharp is the cross-platform PNG decoder + pixel-buffer surface; native bindings
+         ship as RIDed sub-packages so the CI matrix doesn't require ImageMagick installed. -->
+    <PackageVersion Include="SkiaSharp" Version="4.153.1" />
+    <PackageVersion Include="SkiaSharp.NativeAssets.Win32" Version="4.153.1" />
+    <PackageVersion Include="SkiaSharp.NativeAssets.Linux" Version="4.153.1" />
+    <PackageVersion Include="SkiaSharp.NativeAssets.macOS" Version="4.153.1" />
+  </ItemGroup>
+
+</Project>

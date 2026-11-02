@@ -1,0 +1,50 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    #4830 U13 (plan docs/plans/2026-10-24-1609-feat-own-apps-and-private-winget-sources-plan.md, R15, R36, R37;
+    KTD9, KTD24, KTD25, KTD26) — attestree-publish, the publish CLI the GitHub Action and the Azure DevOps task wrap.
+
+    Two modes, one tool:
+      - push: obtains the CI system's OIDC token (GitHub Actions with the instance audience, Azure Pipelines through
+        System.OidcRequestUri), POSTs the version to the instance's publish API, PUTs each installer into its upload slot,
+        and optionally waits on the version's status until a terminal state.
+      - repository (KTD25): writes the version's manifest folder and versions.json into the customer's own GitHub
+        repository and attaches each installer to a release, with the job's own GitHub token. It never asks for an OIDC
+        token and never calls the instance.
+
+    Single-file and self-contained, like wep-bundle-verify: a CI runner runs it without installing the .NET SDK. Not
+    Native AOT (YamlDotNet reflects).
+
+    ProjectReference scope: none. The tool speaks the publish API's JSON and GitHub's REST API, and must never drag a
+    platform assembly into a binary customers download.
+
+    Apache-2.0 (docs/adr/2026-10-31-001-the-publish-tooling-is-apache-2-0.md): its public home is attestree/publish.
+    LICENSE sits beside this file, and THIRD-PARTY-NOTICES.md names every package it references and the .NET runtime a
+    self-contained build carries; Wep.Tools.Publish.Tests fails when a package reference is missing from it.
+  -->
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Wep.Tools.Publish</RootNamespace>
+    <AssemblyName>attestree-publish</AssemblyName>
+    <SourceLicense>OSS-Apache-2.0</SourceLicense>
+    <IsPackable>false</IsPackable>
+
+    <PublishSingleFile>true</PublishSingleFile>
+    <SelfContained>true</SelfContained>
+    <RuntimeIdentifiers>win-x64;linux-x64;linux-arm64;osx-arm64</RuntimeIdentifiers>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+    <ServerGarbageCollection>false</ServerGarbageCollection>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="YamlDotNet" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Wep.Tools.Publish.Tests" />
+  </ItemGroup>
+
+</Project>

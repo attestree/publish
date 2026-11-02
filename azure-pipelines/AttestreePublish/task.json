@@ -1,0 +1,40 @@
+{
+  "$schema": "https://raw.githubusercontent.com/Microsoft/azure-pipelines-task-lib/master/tasks.schema.json",
+  "id": "5f1c2e94-48a3-4f6b-9c17-4830a75e0b13",
+  "name": "AttestreePublish",
+  "friendlyName": "Attestree publish",
+  "description": "Publish a version of your own Windows app to Attestree with this job's workload-identity federation token.",
+  "helpMarkDown": "The service connection must be an Azure Resource Manager workload-identity connection used only for Attestree, whose Entra app holds no Azure role assignments: Attestree accepts the token Entra issues for it, and Entra accepts the same audience for Azure. The binding on the instance names the connection's issuer and subject. To limit publishing to a branch, add a branch-control check on the service connection.",
+  "category": "Deploy",
+  "author": "Attestree",
+  "version": { "Major": 1, "Minor": 0, "Patch": 1 },
+  "minimumAgentVersion": "3.232.1",
+  "instanceNameFormat": "Publish $(packageId) $(version) to Attestree",
+  "inputs": [
+    {
+      "name": "connectedServiceName",
+      "aliases": ["serviceConnection"],
+      "type": "connectedService:AzureRM",
+      "label": "Service connection",
+      "required": true,
+      "helpMarkDown": "The workload-identity service connection bound on the instance. Referencing it here is what lets the job ask for its federated token."
+    },
+    { "name": "instance", "type": "string", "label": "Instance URL", "required": true, "helpMarkDown": "The instance's https base URL." },
+    { "name": "packageId", "type": "string", "label": "Package id", "required": true },
+    { "name": "version", "type": "string", "label": "Version", "required": true },
+    {
+      "name": "installers",
+      "type": "multiLine",
+      "label": "Installers",
+      "required": true,
+      "helpMarkDown": "One installer per line, as <arch>=<path>, for example x64=$(Build.ArtifactStagingDirectory)/tool-x64.msi."
+    },
+    { "name": "manifest", "type": "filePath", "label": "Manifest", "required": false },
+    { "name": "wait", "type": "boolean", "label": "Wait until attested", "defaultValue": "false", "required": false },
+    { "name": "waitTimeout", "type": "string", "label": "Wait timeout (minutes)", "defaultValue": "60", "required": false },
+    { "name": "verbose", "type": "boolean", "label": "Verbose", "defaultValue": "false", "required": false }
+  ],
+  "execution": {
+    "Node20_1": { "target": "index.js" }
+  }
+}

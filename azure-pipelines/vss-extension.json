@@ -1,0 +1,26 @@
+{
+  "manifestVersion": 1,
+  "id": "attestree-publish",
+  "publisher": "attestree",
+  "version": "1.0.1",
+  "name": "Attestree publish",
+  "description": "Publish a version of your own Windows app to Attestree from Azure Pipelines, signed in with the job's workload-identity federation token.",
+  "categories": ["Azure Pipelines"],
+  "tags": ["Attestree", "winget", "publish", "Windows"],
+  "targets": [{ "id": "Microsoft.VisualStudio.Services" }],
+  "public": true,
+  "content": {
+    "details": { "path": "README.md" },
+    "license": { "path": "LICENSE" }
+  },
+  "repository": { "type": "git", "uri": "https://github.com/attestree/publish" },
+  "files": [{ "path": "AttestreePublish" }],
+  "contributions": [
+    {
+      "id": "attestree-publish-task",
+      "type": "ms.vss-distributed-task.task",
+      "targets": ["ms.vss-distributed-task.tasks"],
+      "properties": { "name": "AttestreePublish" }
+    }
+  ]
+}
