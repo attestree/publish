@@ -27,6 +27,10 @@ It stores no secret. The job signs in with the short-lived token Microsoft Entra
 | `version` | yes | The version to publish. |
 | `installers` | yes | One installer per line, as `<arch>=<path>`. One installer per architecture. |
 | `manifest` | no | A winget manifest file or folder whose installer type, scope and switches the version uses. |
+| `silent` | no | The silent install switches, sent for every installer. A push that names them and a manifest that sets switches is refused. |
+| `silentWithProgress` | no | The silent-with-progress switches, sent for every installer. |
+| `customSwitches` | no | Switches winget appends to every install, sent for every installer. |
+| `sbom` | no | The build's own SBOM file: CycloneDX 1.5 or later, or SPDX 2.2, 2.3 or 3.0, as JSON. The instance checks it and keeps it beside the SBOM it records; no check of the version reads it. A version refused for its SBOM alone can be pushed again with a valid one, or none. |
 | `wait` | no | Wait until the version is attested or reaches another final state. The step's exit code says which. |
 | `waitTimeout` | no | Minutes to wait, 60 by default. |
 | `verbose` | no | Log each request's method, host and path. No token is ever printed. |

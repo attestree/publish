@@ -21,6 +21,8 @@ internal static class CommandLine
                             --installer <arch>=<file> [--installer <arch>=<file>]
                             [--installer-url <arch>=<https-url> --sha256 <arch>=<hex>]
                             [--manifest <file-or-folder>]
+                            [--silent <switches>] [--silent-with-progress <switches>] [--custom-switches <switches>]
+                            [--sbom <file>]
                             [--audience attestree:<instance-id>]      (GitHub Actions)
                             [--service-connection <id>]               (Azure Pipelines)
                             [--wait [--wait-timeout <minutes>]]
@@ -32,7 +34,13 @@ internal static class CommandLine
                               [--package-name <name>] [--scope machine|user] [--silent <switches>]
                               [--license <licence>] [--short-description <text>]
                             [--branch <branch>] [--manifests-path <path>] [--release-tag <tag>]
+                            [--sbom <file>]
 
+        In push mode the switches are named once and sent for every installer. A push that names them and a manifest
+        that sets switches is refused; name them in one place.
+        --sbom hands the instance the build's own SBOM (CycloneDX 1.5 or later, or SPDX 2.2, 2.3 or 3.0, as JSON). The
+        instance checks it; a version refused only for its SBOM can be pushed again with a valid one or none. In
+        repository mode the file is written beside the version's manifests as <id>.sbom.cdx.json or <id>.sbom.spdx.json.
         --verbose logs each request's method, host and path. No token is ever printed.
         Exit codes: 0 accepted (or attested), 1 usage, 2 refused, 3 duplicate, 4 transient;
         with --wait: 10 superseded, 11 not admitted, 12 binding removed, 13 source removed, 14 halted, 15 timed out.
@@ -114,7 +122,8 @@ internal static class CommandLine
                     break;
                 case "--instance" or "--package-id" or "--version" or "--manifest" or "--audience" or "--service-connection"
                     or "--wait-timeout" or "--to-repository" or "--branch" or "--manifests-path" or "--release-tag" or "--publisher"
-                    or "--package-name" or "--installer-type" or "--scope" or "--silent" or "--license" or "--short-description":
+                    or "--package-name" or "--installer-type" or "--scope" or "--silent" or "--license" or "--short-description"
+                    or "--silent-with-progress" or "--custom-switches" or "--sbom":
                     if (!single.TryAdd(name, value))
                     {
                         error = $"{name} is given twice.";
@@ -212,6 +221,13 @@ internal static class CommandLine
                 error = $"{repositoryOption} applies only with --to-repository.";
                 return false;
             }
+            // Plan 2026-11-13-0645 U7 (KTD5): the request's switches, one set for the version.
+            if (Switch(single, "--silent", out string? silent, out error) is false
+                || Switch(single, "--silent-with-progress", out string? silentWithProgress, out error) is false
+                || Switch(single, "--custom-switches", out string? customSwitches, out error) is false)
+            {
+                return false;
+            }
             options = new PublishOptions
             {
                 PackageId = packageId,
@@ -221,6 +237,11 @@ internal static class CommandLine
                 Instance = instanceUri,
                 Audience = single.GetValueOrDefault("--audience"),
                 ServiceConnectionId = single.GetValueOrDefault("--service-connection"),
+                SilentSwitches = silent,
+                SilentWithProgressSwitches = silentWithProgress,
+                CustomSwitches = customSwitches,
+                // Plan 2026-11-13-0645 U15 (KTD12): the build's own SBOM, declared in the publish and sent through its slot.
+                SbomPath = single.GetValueOrDefault("--sbom"),
                 Wait = wait,
                 WaitTimeout = waitTimeout,
                 Verbose = verbose,
@@ -231,6 +252,11 @@ internal static class CommandLine
         if (wait || single.ContainsKey("--wait-timeout") || single.ContainsKey("--audience") || single.ContainsKey("--service-connection"))
         {
             error = "--to-repository calls nothing on the instance: --wait, --audience and --service-connection apply only with --instance.";
+            return false;
+        }
+        if (single.ContainsKey("--silent-with-progress") || single.ContainsKey("--custom-switches"))
+        {
+            error = "--silent-with-progress and --custom-switches apply only with --instance; in repository mode, put them in the --manifest.";
             return false;
         }
         if (!IsRepository(repository!))
@@ -277,6 +303,8 @@ internal static class CommandLine
             SilentSwitches = single.GetValueOrDefault("--silent"),
             License = single.GetValueOrDefault("--license") ?? "Proprietary",
             ShortDescription = single.GetValueOrDefault("--short-description"),
+            // Plan 2026-11-13-0645 U16 (KTD13): the build's own SBOM, written beside the version's manifests.
+            SbomPath = single.GetValueOrDefault("--sbom"),
             Verbose = verbose,
         };
         return true;
@@ -306,7 +334,32 @@ internal static class CommandLine
     }
 
     private static readonly string[] RepositoryOptions =
-        ["--branch", "--manifests-path", "--release-tag", "--publisher", "--package-name", "--installer-type", "--scope", "--silent", "--license", "--short-description"];
+        ["--branch", "--manifests-path", "--release-tag", "--publisher", "--package-name", "--installer-type", "--scope", "--license", "--short-description"];
+
+    /// <summary>The longest switch the instance keeps (its record's column).</summary>
+    public const int MaxSwitchLength = 2048;
+
+    /// <summary>
+    /// Plan 2026-11-13-0645 U7: one switch option's value, trimmed; null when not given. False, with the reason, when it is
+    /// blank, longer than the instance keeps, or carries a line break or another control character.
+    /// </summary>
+    private static bool Switch(Dictionary<string, string> single, string option, out string? value, out string? error)
+    {
+        value = null;
+        error = null;
+        if (!single.TryGetValue(option, out string? given))
+        {
+            return true;
+        }
+        string trimmed = given.Trim();
+        if (trimmed.Length == 0 || trimmed.Length > MaxSwitchLength || trimmed.Any(char.IsControl))
+        {
+            error = $"{option} is one line of switches, 1 to {MaxSwitchLength} characters.";
+            return false;
+        }
+        value = trimmed;
+        return true;
+    }
 
     private static string? RepositoryOnly(Dictionary<string, string> single) => RepositoryOptions.FirstOrDefault(single.ContainsKey);
 

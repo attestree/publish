@@ -31,6 +31,31 @@ internal sealed record PublishOptions
     /// <summary>Push mode on Azure Pipelines: the service connection whose federated token the publish carries.</summary>
     public string? ServiceConnectionId { get; init; }
 
+    /// <summary>
+    /// Plan 2026-11-13-0645 U7 (KTD5): push mode, the silent install switches the push's request names, once for every
+    /// installer; repository mode, the silent switches the written manifest names. Null to name none.
+    /// </summary>
+    public string? SilentSwitches { get; init; }
+
+    /// <summary>Plan 2026-11-13-0645 U7 (KTD5): push mode, the silent-with-progress switches the request names; null for none.</summary>
+    public string? SilentWithProgressSwitches { get; init; }
+
+    /// <summary>Plan 2026-11-13-0645 U7 (KTD5): push mode, the custom switches the request names, which winget appends; null for none.</summary>
+    public string? CustomSwitches { get; init; }
+
+    /// <summary>Plan 2026-11-13-0645 U7 (KTD18): whether a push names any switch, so the instance is asked first whether it takes them.</summary>
+    public bool NamesSwitches => !ToRepository && (SilentSwitches ?? SilentWithProgressSwitches ?? CustomSwitches) is not null;
+
+    /// <summary>
+    /// Plan 2026-11-13-0645 U15 (KTD12): push mode, the build's own SBOM file, declared in the publish and uploaded through its
+    /// own slot. U16 (KTD13): repository mode, the file written beside the version's manifests under its fixed name. The
+    /// instance checks it; this tool does not. Null to send none.
+    /// </summary>
+    public string? SbomPath { get; init; }
+
+    /// <summary>Plan 2026-11-13-0645 U15 (KTD18): whether a push names an SBOM, so the instance is asked first whether it takes one.</summary>
+    public bool NamesSbom => !ToRepository && SbomPath is not null;
+
     /// <summary>Push mode: wait on the version's status until a terminal state (KTD9).</summary>
     public bool Wait { get; init; }
 
@@ -60,9 +85,6 @@ internal sealed record PublishOptions
 
     /// <summary>Repository mode without a manifest: machine or user; null to leave it out.</summary>
     public string? Scope { get; init; }
-
-    /// <summary>Repository mode without a manifest: the silent install switches; null to leave them out.</summary>
-    public string? SilentSwitches { get; init; }
 
     /// <summary>Repository mode without a manifest: the licence the locale manifest names.</summary>
     public string License { get; init; } = "Proprietary";

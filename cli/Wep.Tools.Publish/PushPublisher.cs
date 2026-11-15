@@ -23,7 +23,8 @@ internal sealed class PushPublisher(
     CiTokenSource tokens,
     Output output,
     Func<TimeSpan, CancellationToken, Task> delay,
-    TimeProvider clock)
+    TimeProvider clock,
+    SbomFile? sbom = null)
 {
     /// <summary>The upload slot's token header (the publish API's <c>X-Wep-Upload-Token</c>).</summary>
     public const string UploadTokenHeader = "X-Wep-Upload-Token";
@@ -31,10 +32,28 @@ internal sealed class PushPublisher(
     /// <summary>How long apart the status is read while waiting.</summary>
     public static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(20);
 
+    /// <summary>
+    /// Plan 2026-11-13-0645 U7 (KTD18): where the instance says what its publish API takes. One segment under the publish
+    /// prefix, so an instance released before it answers a plain not-found: its status route takes exactly two segments, and
+    /// a two-segment read would be validated as a publish, recorded as a refused one, and spend the token's one publish key.
+    /// Asked with no token at all.
+    /// </summary>
+    public const string CapabilitiesPath = "/api/v1/publish/capabilities";
+
+    /// <summary>Plan 2026-11-13-0645 U7 (KTD18): the capability an instance names when its publish takes install switches.</summary>
+    public const string TakesSwitches = "switches";
+
+    /// <summary>Plan 2026-11-13-0645 U15 (KTD18): the capability an instance names when its publish takes the build's SBOM.</summary>
+    public const string TakesSbom = "sbom";
+
+    /// <summary>Plan 2026-11-13-0645 U15: the reason the instance gives a version it refused for its SBOM alone.</summary>
+    public const string SbomRefused = "sbom-refused";
+
     /// <summary>The backoff between the attempts a 503 earns.</summary>
     public static readonly IReadOnlyList<TimeSpan> RetryBackoff = [TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(10)];
 
-    private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
+    /// <summary>The options every publish-API body is written and read with; the wire-contract test reads with these too.</summary>
+    internal static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
     private readonly PublishOptions _options = options ?? throw new ArgumentNullException(nameof(options));
     private readonly HttpClient _http = http ?? throw new ArgumentNullException(nameof(http));
@@ -46,9 +65,32 @@ internal sealed class PushPublisher(
     {
         string key = $"{Uri.EscapeDataString(_options.PackageId)}/{Uri.EscapeDataString(_options.Version)}";
         Uri publishUrl = InstanceUrl("/api/v1/publish/" + key);
+        // Plan 2026-11-13-0645 U7, U15 (KTD18): an instance that predates switches or the SBOM would drop them with a clean
+        // success, so a run that names either asks first, once, and stops before posting when the instance does not say it
+        // takes what the run names. A run that names neither sends exactly what 1.0.2 sent, and asks nothing.
+        if (_options.NamesSwitches || _options.NamesSbom)
+        {
+            IReadOnlySet<string> takes = await TakesAsync(ct).ConfigureAwait(false);
+            if (_options.NamesSwitches && !takes.Contains(TakesSwitches))
+            {
+                _output.Error($"{_options.Instance!.Host} does not say it takes install switches in a push, so they would be dropped; nothing was sent. "
+                    + "Publish without --silent, --silent-with-progress and --custom-switches, put them in the --manifest, or upgrade the instance.");
+                return ExitCodes.Usage;
+            }
+            if (_options.NamesSbom && !takes.Contains(TakesSbom))
+            {
+                _output.Error($"{_options.Instance!.Host} does not say it takes an SBOM in a push, so it would be dropped; nothing was sent. "
+                    + "Publish without --sbom, or upgrade the instance.");
+                return ExitCodes.Usage;
+            }
+        }
+        // KTD5: the switches are named once for the run and sent on every installer. KTD12: the SBOM is declared here, by its
+        // SHA-256 and size, and its bytes go through a slot of their own.
         PublishBody body = new(
-            [.. installers.Select(i => new PublishInstallerBody(i.Architecture, i.Sha256, i.Url))],
-            manifest is null ? null : [.. manifest.Select(m => m.Text)]);
+            [.. installers.Select(i => new PublishInstallerBody(i.Architecture, i.Sha256, i.Url,
+                _options.SilentSwitches, _options.SilentWithProgressSwitches, _options.CustomSwitches))],
+            manifest is null ? null : [.. manifest.Select(m => m.Text)],
+            sbom is null ? null : new PublishSbomBody(sbom.Sha256, sbom.Length));
 
         Answer posted = await SendAsync(() => new HttpRequestMessage(HttpMethod.Post, publishUrl) { Content = JsonContent.Create(body, options: Json) }, ct)
             .ConfigureAwait(false);
@@ -66,6 +108,23 @@ internal sealed class PushPublisher(
         }
 
         PublishStatusBody status = answer.Status;
+        // Plan 2026-11-13-0645 U15 (KTD12): the SBOM first, so a refusal ends the run before an installer's bytes are sent.
+        if (answer.SbomUpload is { } sbomSlot)
+        {
+            _output.AddSecret(sbomSlot.Token);
+            if (sbom is null)
+            {
+                _output.Error("The instance asked for the SBOM's bytes, but this run names no --sbom.");
+                return ExitCodes.Refused;
+            }
+            Answer sent = await SendAsync(() => SbomRequest(sbomSlot, sbom), ct).ConfigureAwait(false);
+            if (sent.ExitCode is { } sbomFailed)
+            {
+                return sbomFailed;
+            }
+            status = sent.Read<PublishAnswerBody>()?.Status ?? status;
+            _output.Info($"Uploaded the SBOM ({sbom.Length} bytes, SHA-256 {sbom.Sha256}).");
+        }
         foreach (UploadSlotBody slot in answer.Uploads ?? [])
         {
             _output.AddSecret(slot.Token);
@@ -90,6 +149,33 @@ internal sealed class PushPublisher(
             return ExitCodes.Success;
         }
         return await WaitAsync(publishUrl, status, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Plan 2026-11-13-0645 U7, U15 (KTD18): what the instance says its publish takes. Any answer but a readable 200, no
+    /// answer at all included, reads as "takes neither": an older instance answers a plain not-found. Sent with no token, so
+    /// no publish key is spent.
+    /// </summary>
+    private async Task<IReadOnlySet<string>> TakesAsync(CancellationToken ct)
+    {
+        try
+        {
+            using HttpRequestMessage request = new(HttpMethod.Get, InstanceUrl(CapabilitiesPath));
+            using HttpResponseMessage response = await _http.SendAsync(request, ct).ConfigureAwait(false);
+            if (!response.IsSuccessStatusCode)
+            {
+                _output.Debug($"{CapabilitiesPath} answered {(int)response.StatusCode}: read as an instance that takes neither switches nor an SBOM.");
+                return new HashSet<string>(StringComparer.Ordinal);
+            }
+            PublishCapabilitiesBody? body = await response.Content.ReadFromJsonAsync<PublishCapabilitiesBody>(Json, ct).ConfigureAwait(false);
+            return new HashSet<string>(body?.Takes ?? [], StringComparer.Ordinal);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or JsonException or NotSupportedException or InvalidOperationException
+            || (ex is TaskCanceledException && !ct.IsCancellationRequested))
+        {
+            _output.Debug($"{CapabilitiesPath} gave no readable answer: read as an instance that takes neither switches nor an SBOM.");
+            return new HashSet<string>(StringComparer.Ordinal);
+        }
     }
 
     private async Task<int> WaitAsync(Uri statusUrl, PublishStatusBody last, CancellationToken ct)
@@ -154,6 +240,19 @@ internal sealed class PushPublisher(
             Content = new StreamContent(File.OpenRead(file.Path!)),
         };
         request.Content.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
+        request.Content.Headers.ContentLength = file.Length;
+        request.Headers.TryAddWithoutValidation(UploadTokenHeader, slot.Token);
+        return request;
+    }
+
+    /// <summary>Plan 2026-11-13-0645 U15 (KTD12): the SBOM's bytes into its own slot, as an installer's go into theirs.</summary>
+    private HttpRequestMessage SbomRequest(SbomUploadBody slot, SbomFile file)
+    {
+        HttpRequestMessage request = new(HttpMethod.Put, InstanceUrl(slot.Location))
+        {
+            Content = new StreamContent(File.OpenRead(file.Path)),
+        };
+        request.Content.Headers.ContentType = new MediaTypeHeaderValue("application/json");
         request.Content.Headers.ContentLength = file.Length;
         request.Headers.TryAddWithoutValidation(UploadTokenHeader, slot.Token);
         return request;
@@ -229,6 +328,7 @@ internal sealed class PushPublisher(
         int code = status switch
         {
             HttpStatusCode.Conflict when refusal?.Reason is "version-exists" or "installer-set-differs" or "manifest-differs" or "removed-from-catalog"
+                    or "request-switches-differ" or "sbom-differs"
                 => ExitCodes.Duplicate,
             HttpStatusCode.ServiceUnavailable or HttpStatusCode.TooManyRequests or HttpStatusCode.BadGateway or HttpStatusCode.GatewayTimeout
                 => ExitCodes.Transient,
@@ -241,6 +341,9 @@ internal sealed class PushPublisher(
         string message = refusal?.Reason switch
         {
             "digest-mismatch" => $"The instance computed another SHA-256 for the bytes it received than the one this run sent ({why}).",
+            // Plan 2026-11-13-0645 U15 (KTD12): the version was refused for its SBOM alone, so its number is not spent.
+            SbomRefused when code == ExitCodes.Refused =>
+                $"The instance refused the SBOM ({why}). Nothing else was wrong: push {_options.PackageId} {_options.Version} again, the same build with a valid SBOM or none.",
             _ => code switch
             {
                 ExitCodes.Duplicate => $"The instance already holds {_options.PackageId} {_options.Version} another way ({why}). A changed build is a new version.",
@@ -285,15 +388,43 @@ internal sealed class PushPublisher(
 /// <param name="Length">The file's length; 0 for a URL.</param>
 internal sealed record InstallerFile(string Architecture, string? Path, string? Url, string Sha256, long Length);
 
-internal sealed record PublishInstallerBody(string Architecture, string Sha256, string? InstallerUrl);
+/// <summary>One installer of a publish's body; plan 2026-11-13-0645 U7 (KTD5): with the run's switches, the same on every installer.</summary>
+/// <remarks>A switch not named is left out of the body, so a run that names none sends exactly what 1.0.2 sent.</remarks>
+internal sealed record PublishInstallerBody(
+    string Architecture,
+    string Sha256,
+    string? InstallerUrl,
+    [property: System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)] string? Silent = null,
+    [property: System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)] string? SilentWithProgress = null,
+    [property: System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)] string? Custom = null);
 
-internal sealed record PublishBody(IReadOnlyList<PublishInstallerBody> Installers, IReadOnlyList<string>? Manifest);
+/// <summary>Plan 2026-11-13-0645 U7 (KTD18): what the instance says its publish API takes.</summary>
+internal sealed record PublishCapabilitiesBody(IReadOnlyList<string>? Takes);
+
+/// <summary>Plan 2026-11-13-0645 U15 (KTD12): the build's SBOM file, with its SHA-256 and size computed here.</summary>
+/// <param name="Path">The file.</param>
+/// <param name="Sha256">Lowercase hex.</param>
+/// <param name="Length">Its length.</param>
+internal sealed record SbomFile(string Path, string Sha256, long Length);
+
+/// <summary>The publish's body; plan 2026-11-13-0645 U15 (KTD12): with the SBOM it declares, left out when the run names none.</summary>
+internal sealed record PublishBody(
+    IReadOnlyList<PublishInstallerBody> Installers,
+    IReadOnlyList<string>? Manifest,
+    [property: System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)] PublishSbomBody? Sbom = null);
+
+/// <summary>Plan 2026-11-13-0645 U15 (KTD12): the SBOM a publish declares.</summary>
+internal sealed record PublishSbomBody(string Sha256, long SizeBytes);
 
 internal sealed record PublishStatusBody(string PackageId, string Version, string State, string? Reason);
 
 internal sealed record UploadSlotBody(string Architecture, string Location, string Token);
 
+/// <summary>Plan 2026-11-13-0645 U15 (KTD12): where the SBOM's bytes go, and the single-use token that lets them in.</summary>
+internal sealed record SbomUploadBody(string Location, string Token);
+
 internal sealed record PublishAnswerBody(
-    PublishStatusBody Status, string StatusLocation, IReadOnlyList<UploadSlotBody>? Uploads, bool Repeat, IReadOnlyList<string>? IgnoredFields);
+    PublishStatusBody Status, string StatusLocation, IReadOnlyList<UploadSlotBody>? Uploads, bool Repeat, IReadOnlyList<string>? IgnoredFields,
+    SbomUploadBody? SbomUpload = null);
 
 internal sealed record RefusalBody(string? Reason, string? Detail, string? Claim);

@@ -103,7 +103,7 @@
        (assertion below). Bump this every .NET patch Tuesday; since #4916
        dotnet-runtime-bump.yml opens that PR daily (see STALENESS above). -->
   <PropertyGroup>
-    <WepMinimumRuntimeFrameworkVersion>10.0.14</WepMinimumRuntimeFrameworkVersion>
+    <WepMinimumRuntimeFrameworkVersion>10.0.15</WepMinimumRuntimeFrameworkVersion>
   </PropertyGroup>
 
   <!-- #1815: pin the self-contained runtime packs to the floor. -->

@@ -6,7 +6,80 @@ namespace Wep.Tools.Publish;
 /// <summary>A file repository mode writes: its path in the repository and its text.</summary>
 /// <param name="Path">The repository path, '/' between segments.</param>
 /// <param name="Text">The file's text.</param>
-internal sealed record RepositoryFile(string Path, string Text);
+internal sealed record RepositoryFile(string Path, string Text)
+{
+    /// <summary>
+    /// Plan 2026-11-13-0645 U16: the build's SBOM, compared byte for byte and replaced when it differs. Every other file a
+    /// run finds with other content is a changed build, which is a new version.
+    /// </summary>
+    public bool Replaceable { get; init; }
+}
+
+/// <summary>Plan 2026-11-13-0645 U16 (KTD13): the build's own SBOM as repository mode commits it.</summary>
+/// <param name="FileName">Its fixed name beside the manifests: <c>{id}.sbom.cdx.json</c> or <c>{id}.sbom.spdx.json</c>.</param>
+/// <param name="Text">Its bytes, as UTF-8 text, unchanged (line endings and any byte order mark included).</param>
+/// <param name="Sha256">The SHA-256 of its bytes.</param>
+/// <param name="Length">Its size in bytes.</param>
+internal sealed record RepositorySbom(string FileName, string Text, string Sha256, long Length)
+{
+    /// <summary>
+    /// Read <paramref name="path"/> for <paramref name="packageId"/>: the file must be UTF-8 JSON that names CycloneDX
+    /// (<c>bomFormat</c>) or SPDX (<c>spdxVersion</c>, or SPDX 3's <c>@context</c>), because that is what names the file it is
+    /// written as. Nothing else of it is checked here: the instance is the one authority on an SBOM.
+    /// </summary>
+    /// <param name="path">The file.</param>
+    /// <param name="packageId">The package id.</param>
+    /// <param name="sbom">The file to commit; null on an error.</param>
+    /// <param name="error">Why it cannot be written; null when it can.</param>
+    public static bool TryRead(string path, string packageId, out RepositorySbom? sbom, out string? error)
+    {
+        sbom = null;
+        error = null;
+        byte[] bytes = File.ReadAllBytes(path);
+        string text;
+        try
+        {
+            text = new System.Text.UTF8Encoding(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true).GetString(bytes);
+        }
+        catch (System.Text.DecoderFallbackException)
+        {
+            error = $"--sbom {path}: the file is not UTF-8 text, so it cannot be committed as it is. Nothing was written.";
+            return false;
+        }
+        ReadOnlyMemory<byte> json = bytes.AsMemory();
+        if (json.Span.StartsWith((ReadOnlySpan<byte>)[0xEF, 0xBB, 0xBF]))
+        {
+            json = json[3..];
+        }
+        bool? cycloneDx;
+        try
+        {
+            using System.Text.Json.JsonDocument document = System.Text.Json.JsonDocument.Parse(json);
+            System.Text.Json.JsonElement root = document.RootElement;
+            cycloneDx = root.ValueKind != System.Text.Json.JsonValueKind.Object ? null
+                : root.TryGetProperty("bomFormat", out System.Text.Json.JsonElement format)
+                    && format.ValueKind == System.Text.Json.JsonValueKind.String && format.GetString() == "CycloneDX" ? true
+                : root.TryGetProperty("spdxVersion", out _) || root.TryGetProperty("@context", out _) ? false
+                : null;
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            cycloneDx = null;
+        }
+        if (cycloneDx is not { } isCycloneDx)
+        {
+            error = $"--sbom {path}: the file is not a CycloneDX or SPDX JSON document, so it has no name to be written under "
+                + $"({packageId}.sbom.cdx.json or {packageId}.sbom.spdx.json). Nothing was written.";
+            return false;
+        }
+        sbom = new RepositorySbom(
+            isCycloneDx ? $"{packageId}.sbom.cdx.json" : $"{packageId}.sbom.spdx.json",
+            text,
+            Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(bytes)),
+            bytes.LongLength);
+        return true;
+    }
+}
 
 /// <summary>
 /// #4830 U13 (KTD25): the version's manifest folder in winget-pkgs' layout, as repository mode writes it:
@@ -166,3 +239,4 @@ internal static class ManifestWriter
         return files;
     }
 }
+

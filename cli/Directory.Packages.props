@@ -25,17 +25,18 @@
   </PropertyGroup>
 
   <ItemGroup Label="AspNetCoreAndBlazor">
-    <PackageVersion Include="Microsoft.AspNetCore.OpenApi" Version="10.0.11" />
-    <!-- Microsoft.AspNetCore.OpenApi 10.0.9 pulls Microsoft.OpenApi 2.0.0
-         transitively. GHSA-v5pm-xwqc-g5wc (CVSS 7.5: a crafted circular-$ref
-         OpenAPI doc stack-overflows the JSON/YAML reader) flags
-         >= 2.0.0-preview11, <= 2.7.4 as vulnerable -> NU1903 audit-as-error
-         fails a fresh `dotnet restore`. With
-         CentralPackageTransitivePinningEnabled=true, pinning 2.7.5 (the first
-         patched 2.x) here lifts the transitive to the fixed version and evicts
-         2.0.0 from the graph; Microsoft.AspNetCore.OpenApi stays at 10.0.9.
-         Same transitive-floor pattern as the SQLitePCLRaw / Crypto.Xml pins. -->
-    <PackageVersion Include="Microsoft.OpenApi" Version="2.7.5" />
+    <PackageVersion Include="Microsoft.AspNetCore.OpenApi" Version="10.0.14" />
+    <!-- Transitive-only: Microsoft.AspNetCore.OpenApi's document model.
+         GHSA-v5pm-xwqc-g5wc (CVSS 7.5: a crafted circular-$ref OpenAPI doc
+         stack-overflows the JSON/YAML reader) flags >= 2.0.0-preview11,
+         <= 2.7.4 as vulnerable -> NU1903 audit-as-error fails a fresh
+         `dotnet restore`; 10.0.9 pulled 2.0.0, so this pin was 2.7.5, the first
+         patched 2.x. Microsoft.AspNetCore.OpenApi 10.0.13 and later ask for
+         [2.12.2, 3.0.0) themselves, and a lower pin here fails restore with
+         NU1109, so the pin now moves with Microsoft.AspNetCore.OpenApi: the
+         lowest version it accepts (#4386). Same transitive-floor pattern as the
+         SQLitePCLRaw / Crypto.Xml pins. -->
+    <PackageVersion Include="Microsoft.OpenApi" Version="2.12.2" />
     <PackageVersion Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.14" />
     <PackageVersion Include="Microsoft.AspNetCore.Authentication.OpenIdConnect" Version="10.0.14" />
     <PackageVersion Include="Microsoft.AspNetCore.Components.QuickGrid" Version="10.0.14" />
@@ -78,8 +79,8 @@
   </ItemGroup>
 
   <ItemGroup Label="GrpcAndProtobuf">
-    <PackageVersion Include="Grpc.AspNetCore" Version="2.84.0" />
-    <PackageVersion Include="Grpc.Net.Client" Version="2.84.0" />
+    <PackageVersion Include="Grpc.AspNetCore" Version="2.85.0" />
+    <PackageVersion Include="Grpc.Net.Client" Version="2.85.0" />
     <!-- 2.67.0 was ADR-008's floor for Aspire.Hosting 9.0.0. The AppHost is retired (ADR 2026-10-26-001):
          the broker's gRPC contract is what uses it now, and nothing holds it at that floor. -->
     <PackageVersion Include="Grpc.Tools" Version="2.85.0" />
@@ -121,11 +122,11 @@
          gone with the AppHost (ADR 2026-10-26-001). -->
     <PackageVersion Include="Azure.Identity" Version="1.21.0" />
     <PackageVersion Include="Azure.Security.KeyVault.Keys" Version="4.10.2" />
-    <PackageVersion Include="Azure.Security.KeyVault.Secrets" Version="4.11.2" />
+    <PackageVersion Include="Azure.Security.KeyVault.Secrets" Version="4.12.0" />
     <!-- Plan 2026-09-02-1719 U7 (KTD2): the hosted bootstrap verb creates the
          self-signed `catalog-attest` certificate through the vault's certificate
          client, from the same Azure.Security.KeyVault family as the sibling Keys/Secrets clients. -->
-    <PackageVersion Include="Azure.Security.KeyVault.Certificates" Version="4.9.2" />
+    <PackageVersion Include="Azure.Security.KeyVault.Certificates" Version="4.10.0" />
     <PackageVersion Include="Azure.Storage.Blobs" Version="12.30.1" />
     <!-- Plan 2026-05-21-003 U1: ASP.NET Core DataProtection AKV provider for SaaS mode. -->
     <PackageVersion Include="Azure.Extensions.AspNetCore.DataProtection.Blobs" Version="1.5.5" />
@@ -191,8 +192,8 @@
          framework into the AOT image). The broker uses the same API but is
          non-AOT, so this is the first AOT publish path for ProtectedData. -->
     <PackageVersion Include="System.Security.Cryptography.ProtectedData" Version="10.0.14" />
-    <!-- Transitive-only (no source usage). The GHSA-q939-rpr3-3284 SSH.NET
-         2026.0.0 floor (see the Testcontainers group) requires
+    <!-- Transitive-only (no source usage). SSH.NET 2026.0.0, which
+         Testcontainers 4.16 asks for (see the Testcontainers group), requires
          BouncyCastle.Cryptography >= 2.7.0, and SSH.NET reaches only the four
          Testcontainers TEST projects. Until 2026-10-26 the central pin stayed
          2.4.0 and those projects lifted it with VersionOverride, so that no
@@ -237,7 +238,7 @@
          ENTIRE MSTest 3.x line (the 3.11.1 intermediate hop failed the
          hygiene gate too), so this is the 4.x current. The metapackage adds
          MSTest.Analyzers to every test project. -->
-    <PackageVersion Include="MSTest" Version="4.5.1" />
+    <PackageVersion Include="MSTest" Version="4.5.2" />
     <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.11.0" />
     <!-- AwesomeAssertions, not FluentAssertions (2026-10-26): FluentAssertions 8+
          ships under Xceed's Community License, which is non-commercial only (it
@@ -250,25 +251,21 @@
     <PackageVersion Include="AwesomeAssertions" Version="9.6.0" />
     <PackageVersion Include="NSubstitute" Version="6.2.0" />
     <PackageVersion Include="coverlet.collector" Version="10.1.0" />
+    <!-- No SSH.NET pin (#4386). From 2026-08-13 one held SSH.NET at 2026.0.0,
+         the first version GHSA-q939-rpr3-3284 (ScpClient recursive-download
+         arbitrary file write, High; <= 2025.1.0 vulnerable, NU1903
+         audit-as-error) does not flag, because Testcontainers 4.1.0 pulled
+         2024.1.0. Testcontainers 4.16.0 asks for SSH.NET 2026.0.0 itself, and
+         NuGet audit still fails restore on any vulnerable version that comes
+         back. -->
     <PackageVersion Include="Testcontainers" Version="4.16.0" />
-    <!-- GHSA-q939-rpr3-3284 (SSH.NET ScpClient recursive-download arbitrary
-         file write, High): Testcontainers 4.1.0 pulls SSH.NET 2024.1.0
-         transitively; the advisory flags <= 2025.1.0 as vulnerable -> NU1903
-         audit-as-error fails a fresh `dotnet restore` (2026-08-13). With
-         CentralPackageTransitivePinningEnabled=true, pinning 2026.0.0 (the
-         first patched version) lifts the transitive and evicts 2024.1.0 from
-         the graph. Same transitive-floor pattern as the Microsoft.OpenApi /
-         SQLitePCLRaw pins above. Testcontainers 4.16.0 (2026-10-27) asks for
-         2026.0.0 itself, so the pin now only keeps a later Testcontainers from
-         walking the floor back down. -->
-    <PackageVersion Include="SSH.NET" Version="2026.0.0" />
     <PackageVersion Include="Testcontainers.PostgreSql" Version="4.16.0" />
     <!-- Per Plan 2026-05-04-001 Unit B.2: Azurite emulator for
          AzureBlobBackend integration tests. -->
     <PackageVersion Include="Testcontainers.Azurite" Version="4.16.0" />
     <!-- Blazor component testing + WebApplicationFactory integration testing per Plan 2026-05-03-003 Unit A.1. -->
     <PackageVersion Include="bunit" Version="2.13.3" />
-    <PackageVersion Include="Microsoft.AspNetCore.Mvc.Testing" Version="10.0.0" />
+    <PackageVersion Include="Microsoft.AspNetCore.Mvc.Testing" Version="10.0.14" />
     <!-- Per Plan 2026-05-13-002 (smoke extension) U1: Playwright .NET drives
          the browser-based smoke against the community-edition compose stack. -->
     <PackageVersion Include="Microsoft.Playwright" Version="1.64.1" />

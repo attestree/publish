@@ -31,7 +31,8 @@ internal sealed class RepositoryPublisher(
     HttpClient http,
     Func<string, string?> environment,
     Output output,
-    Func<TimeSpan, CancellationToken, Task> delay)
+    Func<TimeSpan, CancellationToken, Task> delay,
+    RepositorySbom? sbom = null)
 {
     private const int CommitAttempts = 3;
 
@@ -78,6 +79,12 @@ internal sealed class RepositoryPublisher(
         {
             _output.Error(writeError!);
             return ExitCodes.Usage;
+        }
+        if (sbom is not null)
+        {
+            // Plan 2026-11-13-0645 U16 (KTD13): the build's SBOM sits beside the version's manifests under its fixed name.
+            string folder = files[0].Path[..files[0].Path.LastIndexOf('/')];
+            files = [.. files, new RepositoryFile($"{folder}/{sbom.FileName}", sbom.Text) { Replaceable = true }];
         }
         return await CommitAsync(repo, files, tag, ct).ConfigureAwait(false);
     }
@@ -183,6 +190,15 @@ internal sealed class RepositoryPublisher(
                 {
                     changed.Add(file);
                 }
+                else if (file.Replaceable)
+                {
+                    // U16 (R23): an SBOM that differs is replaced. An instance that already kept the version keeps its copy.
+                    if (!string.Equals(current, file.Text, StringComparison.Ordinal))
+                    {
+                        _output.Info($"{repo} held another {file.Path}; it is replaced. An instance that already kept this version keeps the copy it took and notes the change.");
+                        changed.Add(file);
+                    }
+                }
                 else if (!string.Equals(current.ReplaceLineEndings("\n"), file.Text, StringComparison.Ordinal))
                 {
                     _output.Error($"{repo} already holds {file.Path} with other content. A changed build is a new version.");
@@ -258,6 +274,10 @@ internal sealed class RepositoryPublisher(
             }
             _output.Info($"Committed {_options.PackageId} {_options.Version} to {repo}@{_options.Branch} ({sha[..Math.Min(12, sha.Length)]}): "
                 + $"{versionFolder}/ and {indexPath}. The instance reads it on its next freshness check.");
+            if (sbom is not null && changed.Any(f => f.Replaceable))
+            {
+                _output.Info($"The SBOM was committed as {versionFolder}/{sbom.FileName} ({sbom.Length} bytes, SHA-256 {sbom.Sha256}).");
+            }
             return ExitCodes.Success;
         }
     }

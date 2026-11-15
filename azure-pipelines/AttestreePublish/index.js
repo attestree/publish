@@ -65,6 +65,16 @@ async function main() {
   if (input('manifest')) {
     args.push('--manifest', input('manifest'));
   }
+  // Plan 2026-11-13-0645 U7: the request's switches, once for every installer.
+  for (const [name, option] of [['silent', '--silent'], ['silentWithProgress', '--silent-with-progress'], ['customSwitches', '--custom-switches']]) {
+    if (input(name)) {
+      args.push(option, input(name));
+    }
+  }
+  // Plan 2026-11-13-0645 U15: the build's own SBOM, declared in the push and uploaded through its own slot.
+  if (input('sbom')) {
+    args.push('--sbom', input('sbom'));
+  }
   if (input('wait') === 'true') {
     args.push('--wait', '--wait-timeout', input('waitTimeout') || '60');
   }

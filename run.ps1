@@ -56,6 +56,10 @@ foreach ($line in ($env:ATTESTREE_INSTALLERS -split "`r?`n")) {
     Add-Option '--installer' $line
 }
 Add-Option '--manifest' $env:ATTESTREE_MANIFEST
+Add-Option '--silent' $env:ATTESTREE_SILENT
+# Plan 2026-11-13-0645 U15, U16: the build's own SBOM. A push declares it and uploads it through its own slot; repository mode
+# commits it beside the version's manifests.
+Add-Option '--sbom' $env:ATTESTREE_SBOM
 if ($env:ATTESTREE_TO_REPOSITORY) {
     Add-Option '--to-repository' $env:ATTESTREE_TO_REPOSITORY
     Add-Option '--branch' $env:ATTESTREE_BRANCH
@@ -67,6 +71,8 @@ else {
     Add-Option '--instance' $env:ATTESTREE_INSTANCE
     # The job's OIDC token is requested for the instance's audience (KTD8): GitHub mints it for exactly this value.
     Add-Option '--audience' $env:ATTESTREE_AUDIENCE
+    Add-Option '--silent-with-progress' $env:ATTESTREE_SILENT_WITH_PROGRESS
+    Add-Option '--custom-switches' $env:ATTESTREE_CUSTOM_SWITCHES
     if ($env:ATTESTREE_WAIT -eq 'true') {
         $cliArgs.Add('--wait')
         Add-Option '--wait-timeout' $env:ATTESTREE_WAIT_TIMEOUT

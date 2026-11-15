@@ -72,6 +72,31 @@ internal static class PublishCommand
             }
             installers.Add(await HashAsync(installer.Architecture, installer.Path!, ct).ConfigureAwait(false));
         }
+        // Plan 2026-11-13-0645 U15 (KTD12): the SBOM is declared by its SHA-256 and size; the instance, not this tool, reads it.
+        // U16 (KTD13): repository mode commits it beside the manifests, named by which of the two formats it is.
+        SbomFile? sbom = null;
+        RepositorySbom? repositorySbom = null;
+        if (options.SbomPath is { } sbomPath)
+        {
+            if (!File.Exists(sbomPath))
+            {
+                output.Error($"--sbom {sbomPath}: no such file.");
+                return ExitCodes.Usage;
+            }
+            if (options.ToRepository)
+            {
+                if (!RepositorySbom.TryRead(sbomPath, options.PackageId, out repositorySbom, out string? sbomError))
+                {
+                    output.Error(sbomError!);
+                    return ExitCodes.Usage;
+                }
+            }
+            else
+            {
+                InstallerFile hashed = await HashAsync("sbom", sbomPath, ct).ConfigureAwait(false);
+                sbom = new SbomFile(sbomPath, hashed.Sha256, hashed.Length);
+            }
+        }
 
         using HttpClient http = new(new RequestLog(output) { InnerHandler = handler }, disposeHandler: false)
         {
@@ -81,11 +106,11 @@ internal static class PublishCommand
 
         if (options.ToRepository)
         {
-            return await new RepositoryPublisher(options, installers, manifest, http, environment, output, delay)
+            return await new RepositoryPublisher(options, installers, manifest, http, environment, output, delay, repositorySbom)
                 .RunAsync(ct).ConfigureAwait(false);
         }
         CiTokenSource tokens = new(options, environment, http, output, clock);
-        return await new PushPublisher(options, installers, manifest, http, tokens, output, delay, clock)
+        return await new PushPublisher(options, installers, manifest, http, tokens, output, delay, clock, sbom)
             .RunAsync(ct).ConfigureAwait(false);
     }
 

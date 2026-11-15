@@ -7,7 +7,7 @@
   "helpMarkDown": "The service connection must be an Azure Resource Manager workload-identity connection used only for Attestree, whose Entra app holds no Azure role assignments: Attestree accepts the token Entra issues for it, and Entra accepts the same audience for Azure. The binding on the instance names the connection's issuer and subject. To limit publishing to a branch, add a branch-control check on the service connection.",
   "category": "Deploy",
   "author": "Attestree",
-  "version": { "Major": 1, "Minor": 0, "Patch": 2 },
+  "version": { "Major": 1, "Minor": 1, "Patch": 0 },
   "minimumAgentVersion": "3.232.1",
   "instanceNameFormat": "Publish $(packageId) $(version) to Attestree",
   "inputs": [
@@ -30,6 +30,10 @@
       "helpMarkDown": "One installer per line, as <arch>=<path>, for example x64=$(Build.ArtifactStagingDirectory)/tool-x64.msi."
     },
     { "name": "manifest", "type": "filePath", "label": "Manifest", "required": false },
+    { "name": "silent", "type": "string", "label": "Silent switches", "required": false, "helpMarkDown": "Sent for every installer. Not with a manifest that sets switches." },
+    { "name": "silentWithProgress", "type": "string", "label": "Silent-with-progress switches", "required": false, "helpMarkDown": "Sent for every installer." },
+    { "name": "customSwitches", "type": "string", "label": "Custom switches", "required": false, "helpMarkDown": "Switches winget appends to every install, sent for every installer." },
+    { "name": "sbom", "type": "filePath", "label": "SBOM", "required": false, "helpMarkDown": "The build's own SBOM file (CycloneDX 1.5 or later, or SPDX 2.2, 2.3 or 3.0, as JSON), kept beside the SBOM Attestree records. The instance checks it; no check of the version reads it." },
     { "name": "wait", "type": "boolean", "label": "Wait until attested", "defaultValue": "false", "required": false },
     { "name": "waitTimeout", "type": "string", "label": "Wait timeout (minutes)", "defaultValue": "60", "required": false },
     { "name": "verbose", "type": "boolean", "label": "Verbose", "defaultValue": "false", "required": false }

@@ -58,6 +58,10 @@ steps:
 | `version` | both | The version to publish. |
 | `installers` | both | One installer per line, as `<arch>=<path>`. One installer per architecture. |
 | `manifest` | both | Optional. A winget manifest file or folder whose installer type, scope and switches the version uses. |
+| `silent` | both | Optional. The silent install switches. Push mode sends them for every installer; repository mode without a manifest writes them into it. A push that names them and a manifest that sets switches is refused. |
+| `silent-with-progress` | push | Optional. The silent-with-progress switches, sent for every installer. |
+| `custom-switches` | push | Optional. Switches winget appends to every install, sent for every installer. |
+| `sbom` | both | Optional. The build's own SBOM file: CycloneDX 1.5 or later, or SPDX 2.2, 2.3 or 3.0, as JSON. The instance checks it and keeps it beside the SBOM it records; no check of the version reads it. In push mode, a version refused for its SBOM alone can be pushed again with a valid one, or none. In repository mode it is committed beside the version's manifests as `<id>.sbom.cdx.json` or `<id>.sbom.spdx.json`. |
 | `instance` | push | The instance's https base URL. |
 | `audience` | push | `attestree:<instance-id>`, as the binding screen shows it. |
 | `wait` | push | Wait until the version is attested or reaches another final state; the step's exit code says which. |

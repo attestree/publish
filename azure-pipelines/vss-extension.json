@@ -2,7 +2,7 @@
   "manifestVersion": 1,
   "id": "attestree-publish",
   "publisher": "attestree",
-  "version": "1.0.2",
+  "version": "1.1.0",
   "name": "Attestree publish",
   "description": "Publish a version of your own Windows app to Attestree from Azure Pipelines, signed in with the job's workload-identity federation token.",
   "categories": ["Azure Pipelines"],
